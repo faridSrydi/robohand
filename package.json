@@ -1,0 +1,32 @@
+{
+  "name": "robotic-hand",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Robot tangan 5 jari: hand tracking (webcam) -> Node.js -> ESP32 (WiFi atau USB) -> 5 servo",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js",
+    "db:init": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.105.0",
+    "@react-three/fiber": "^8.16.0",
+    "bcryptjs": "^3.0.3",
+    "express": "^4.21.2",
+    "framer-motion": "^11.2.0",
+    "msedge-tts": "^2.1.1",
+    "mysql2": "^3.24.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.24.0",
+    "serialport": "^12.0.0",
+    "three": "^0.165.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.3.1"
+  }
+}

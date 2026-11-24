@@ -1,0 +1,14 @@
+{
+  "name": "robot-hand",
+  "version": "1.1.0",
+  "description": "Hand tracking (webcam) -> Node.js -> ESP32 (WiFi atau kabel USB) -> 4 servo 180° (jari) + 1 servo continuous 360° (jempol), LED WS2812B, buzzer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "serialport": "^12.0.0",
+    "ws": "^8.18.0"
+  }
+}

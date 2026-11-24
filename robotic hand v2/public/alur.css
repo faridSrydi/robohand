@@ -1,0 +1,104 @@
+/* ======================================================
+   Alur data (pipeline) + footer
+   Pakai variabel dari site.css: --ln --mut --fg --ac --card --mono
+   ====================================================== */
+
+/* ---- Alur data ---- */
+.pipe{--s:1.5s;list-style:none;margin:40px 0 0;padding:0;display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr) 48px) minmax(0,1fr);align-items:stretch}
+
+/* kartu tahap */
+.pn{position:relative;display:flex;flex-direction:column;gap:18px;padding:18px 18px 22px;
+  border:1px solid var(--ln);border-radius:20px;background:var(--card)}
+.pn::after{content:"";position:absolute;inset:-1px;border:1px solid var(--ac);border-radius:inherit;
+  box-shadow:0 20px 56px -28px var(--ac);opacity:0;pointer-events:none;
+  animation:pnHot calc(var(--s)*5) ease-in-out infinite;animation-delay:calc(var(--i)*var(--s))}
+.pn-top{display:flex;align-items:center;justify-content:space-between}
+.pn-ic{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;
+  border:1px solid var(--ln);color:var(--fg);
+  animation:pnIc calc(var(--s)*5) ease-in-out infinite;animation-delay:calc(var(--i)*var(--s))}
+.pn-ic svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.pn-n{font-family:var(--mono);font-size:13px;color:var(--ac)}
+.pn h3{margin:0 0 4px;font-size:18px;letter-spacing:-.02em}
+.pn p{margin:0;color:var(--mut);font-size:14px;line-height:1.45}
+
+/* penghubung + paket data yang bergerak */
+.pl{position:relative;align-self:center;height:2px;margin:0 8px}
+.pl::before{content:"";position:absolute;inset:0;border-radius:2px;background:var(--mut);opacity:.4}
+.pl::after{content:"";position:absolute;right:1px;top:50%;width:7px;height:7px;
+  border:solid var(--mut);border-width:2px 2px 0 0;opacity:.55;transform:translateY(-50%) rotate(45deg)}
+.pl i{position:absolute;left:0;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;
+  background:var(--ac);box-shadow:0 0 12px var(--ac);opacity:0;
+  animation:pnGoX calc(var(--s)*5) linear infinite;animation-delay:calc(var(--i)*var(--s) + .6*var(--s))}
+
+/* satu siklus = 5 langkah; tiap tahap menyala bergiliran lalu paket berpindah ke tahap berikutnya */
+@keyframes pnHot{0%{opacity:0}3%,15%{opacity:1}26%,100%{opacity:0}}
+@keyframes pnIc{
+  0%,26%,100%{background:transparent;border-color:var(--ln);color:var(--fg)}
+  3%,15%{background:var(--ac);border-color:var(--ac);color:#111}
+}
+@keyframes pnGoX{0%{left:0;opacity:0}1%,7%{opacity:1}8%,100%{left:100%;opacity:0}}
+@keyframes pnGoY{0%{top:0;opacity:0}1%,7%{opacity:1}8%,100%{top:100%;opacity:0}}
+
+/* animasi berhenti saat section di luar layar (diatur script kecil di index.html) */
+.pipe.idle *,.pipe.idle *::after{animation-play-state:paused}
+
+/* tampilan vertikal untuk layar sempit */
+@media(max-width:980px){
+  .pipe{grid-template-columns:minmax(0,1fr);max-width:620px}
+  .pn{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;column-gap:16px;gap:0 16px;padding:16px 18px}
+  .pn-top{display:contents}
+  .pn-ic{order:1}.pn-tx{order:2}.pn-n{order:3}
+  .pl{width:2px;height:34px;margin:0 0 0 39px;align-self:auto}
+  .pl::after{right:auto;top:auto;bottom:1px;left:50%;transform:translateX(-50%) rotate(135deg)}
+  .pl i{left:50%;top:0;animation-name:pnGoY}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .pn::after,.pn-ic,.pl i{animation:none}
+}
+
+/* ---- Footer ---- */
+footer.sf{padding:clamp(48px,8vw,72px) 0 0;overflow:hidden;color:var(--mut);font-size:14px;
+  background:radial-gradient(70% 90% at 50% 100%,rgba(245,184,46,.10),transparent 70%)}
+.sf-top{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,.7fr) minmax(0,.9fr);gap:36px clamp(28px,6vw,80px)}
+.sf-brand a.sf-b{display:inline-flex;align-items:center;gap:10px;color:var(--fg);font-weight:700;font-size:17px;
+  letter-spacing:-.02em;text-decoration:none}
+.sf-logo{width:28px;height:28px;display:block;flex:none}
+.sf-logo .f{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.sf-b:hover .sf-logo .f{transform:translateY(2.5px)}
+.sf-brand p{margin:14px 0 0;max-width:38ch;color:var(--mut);font-size:15px}
+.sf-col h4{margin:0 0 14px;font-size:14px;font-weight:600;color:var(--fg)}
+.sf-col ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.sf-col a{color:var(--fg);font-weight:500;text-decoration:none;background:linear-gradient(var(--ac),var(--ac)) 0 100%/0 1px no-repeat;
+  padding-bottom:2px;transition:background-size .35s cubic-bezier(.2,.8,.2,1)}
+.sf-col a:hover{background-size:100% 1px}
+.sf a:focus-visible,.sf button:focus-visible{outline:2px solid var(--ac);outline-offset:3px;border-radius:6px}
+
+.sf-bot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px 16px;
+  margin-top:clamp(36px,6vw,56px);padding:18px 0;border-top:1px solid var(--ln);font-size:13px}
+.sf-up{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid var(--ln);border-radius:999px;
+  background:transparent;color:var(--fg);font:500 13px var(--font);cursor:pointer;transition:border-color .2s,transform .25s}
+.sf-up:hover{border-color:var(--mut);transform:translateY(-2px)}
+.sf-up svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* nama besar berkontur, terpotong dan memudar di dasar halaman */
+.sf-wm{container-type:inline-size}
+.sf-wmi{height:7vw;overflow:hidden;user-select:none;pointer-events:none;
+  -webkit-mask-image:linear-gradient(to bottom,#000 30%,transparent 98%);
+  mask-image:linear-gradient(to bottom,#000 30%,transparent 98%)}
+.sf-wmi span{display:block;white-space:nowrap;font-size:13.4vw;font-weight:800;letter-spacing:-.06em;line-height:1;margin-top:-.1em;
+  color:transparent;-webkit-text-stroke:1px var(--ln);
+  -webkit-text-stroke:1px color-mix(in srgb,var(--mut) 40%,transparent)}
+@supports (width:1cqw){
+  .sf-wmi{height:7.2cqw}
+  .sf-wmi span{font-size:13.8cqw}
+}
+
+@media(max-width:720px){
+  .sf-top{grid-template-columns:1fr 1fr}
+  .sf-brand{grid-column:1/-1}
+}
+@media(prefers-reduced-motion:reduce){
+  .sf-logo .f,.sf-up,.sf-col a{transition:none}
+}

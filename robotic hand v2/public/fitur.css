@@ -1,0 +1,52 @@
+/* ---- Fitur: daftar akordeon + visual 3D ---- */
+.fx{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:clamp(28px,5vw,72px);align-items:start;margin-top:36px}
+.fx .feat{grid-template-columns:1fr;gap:0;margin:0}
+.fx .feat li{position:relative;padding:22px 0;cursor:pointer;outline:none;user-select:none;-webkit-tap-highlight-color:transparent}
+.fx .feat li:hover{border-top-color:var(--ln)}
+.fx .feat li:last-child{border-bottom:1px solid var(--ln)}
+.fx .feat li::before{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;background:var(--ac);transform:scaleX(0);transform-origin:0 50%;transition:transform .7s cubic-bezier(.2,.8,.2,1)}
+.fx .feat li.on::before{transform:scaleX(1)}
+.fx .feat li:focus-visible{outline:2px solid var(--ac);outline-offset:-2px;border-radius:12px}
+
+.fx .fh{display:flex;align-items:center;gap:16px}
+.fx .fh span{width:2ch;flex:none}
+.fx .fh h3{flex:1;margin:0;font-size:clamp(18px,2vw,23px);letter-spacing:-.02em;color:var(--mut);transition:color .35s,transform .5s cubic-bezier(.2,.8,.2,1)}
+.fx .feat li:hover h3{color:var(--fg)}
+.fx .feat li.on h3{color:var(--fg);transform:translateX(4px)}
+
+.fc{position:relative;width:32px;height:32px;flex:none;border:1px solid var(--ln);border-radius:50%;transition:background .35s,border-color .35s,transform .5s cubic-bezier(.2,.8,.2,1)}
+.fc::before,.fc::after{content:"";position:absolute;left:50%;top:50%;width:12px;height:1.6px;margin:-.8px 0 0 -6px;border-radius:2px;background:var(--fg);transition:transform .45s cubic-bezier(.2,.8,.2,1),background .3s}
+.fc::after{transform:rotate(90deg)}
+.fx .feat li.on .fc{background:var(--ac);border-color:var(--ac);transform:rotate(180deg)}
+.fx .feat li.on .fc::before,.fx .feat li.on .fc::after{background:#111}
+.fx .feat li.on .fc::after{transform:rotate(0)}
+
+.fb{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .6s cubic-bezier(.2,.8,.2,1),opacity .45s}
+.fbi{overflow:hidden;min-height:0}
+.fbi p{margin:0;padding:10px 48px 0 32px;font-size:15px;color:var(--mut)}
+.fx .feat li.on .fb{grid-template-rows:1fr;opacity:1}
+
+.fx-stage{position:sticky;top:88px;height:clamp(420px,66vh,580px);border:1px solid var(--ln);border-radius:22px;overflow:hidden;scroll-margin-top:84px;
+  background:radial-gradient(circle at 50% 40%,rgba(245,184,46,.16),transparent 64%),var(--card)}
+.fx-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab}
+.fx-stage canvas:active{cursor:grabbing}
+.fx-hint{position:absolute;top:14px;right:18px;font-size:12px;color:var(--mut);pointer-events:none}
+.fx-cap{position:absolute;left:0;right:0;bottom:0;padding:64px 26px 22px;background:linear-gradient(to bottom,transparent,var(--card) 58%);pointer-events:none}
+.fx-cap>div{opacity:0;transform:translateY(10px);transition:opacity .45s,transform .55s cubic-bezier(.2,.8,.2,1)}
+.fx-cap>div.in{opacity:1;transform:none}
+.fx-cap b{font-family:var(--mono);font-size:13px;font-weight:400;color:var(--ac)}
+.fx-cap h4{margin:6px 0 4px;font-size:clamp(20px,2.4vw,26px);letter-spacing:-.02em}
+.fx-cap p{margin:0;color:var(--mut);font-size:14px;max-width:48ch}
+.fx-stage.nogl::after{content:"Tampilan 3D tidak didukung browser ini.";position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);font-size:14px}
+
+@media(max-width:860px){
+  .fx{grid-template-columns:1fr;gap:18px}
+  .fx-stage{order:-1;top:72px;z-index:4;height:clamp(280px,44vh,400px);border-radius:18px}
+  .fx-cap{padding:48px 18px 14px}
+  .fx-cap p{display:none}
+  .fx .feat li{padding:18px 0}
+  .fbi p{padding-right:8px}
+}
+@media(prefers-reduced-motion:reduce){
+  .fb,.fc,.fc::before,.fc::after,.fx .fh h3,.fx-cap>div,.fx .feat li::before{transition:none}
+}

@@ -1,0 +1,9 @@
+{
+  "framework": null,
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/simulasi", "destination": "/simulasi.html" },
+    { "source": "/robot-hand", "destination": "/robot-hand.html" }
+  ]
+}

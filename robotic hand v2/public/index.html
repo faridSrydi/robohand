@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="logo.svg"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robotic Hand - Robot tangan 5 jari berbasis ESP32</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("theme")||(matchMedia("(prefers-color-scheme:light)").matches?"light":"dark")}catch(e){document.documentElement.dataset.theme="dark"}</script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="nav.css"><link rel="stylesheet" href="site.css"><link rel="stylesheet" href="fitur.css"><link rel="stylesheet" href="alur.css"></head><body>
+<nav class="nav"><a class="brand" href="index.html"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#f5b82e"/><g fill="#111"><rect x="9.5" y="17" width="16" height="8" rx="2.5"/><rect x="9.5" y="13.5" width="3" height="5.5" rx="1"/><rect x="13.83" y="13.5" width="3" height="5.5" rx="1"/><rect x="18.17" y="13.5" width="3" height="5.5" rx="1"/><rect x="22.5" y="13.5" width="3" height="5.5" rx="1"/><rect class="f" x="9.5" y="8" width="3" height="4.5" rx="1.5"/><rect class="f" x="13.83" y="5.5" width="3" height="7" rx="1.5"/><rect class="f" x="18.17" y="7" width="3" height="5.5" rx="1.5"/><rect class="f" x="22.5" y="9.5" width="3" height="3" rx="1.5"/><path d="M9.5 22.5 5.8 18" stroke="#111" stroke-width="3" stroke-linecap="round" fill="none"/></g><circle cx="17.5" cy="21" r="1.2" fill="#f5b82e"/></svg><span class="bn">RoboticHand</span></a><div class="links"><a href="index.html" class="active">Home</a><a href="simulasi.html">Simulasi</a><a href="robot-hand.html">Robotic Hand</a></div><div class="act"><button class="theme" id="tt" aria-label="Ganti tema"></button><a class="btn" href="robot-hand.html">Kontrol</a><button class="burger" id="bg" aria-label="Menu" aria-expanded="false"><span></span><span></span></button></div></nav>
+<main class="wrap">
+<div class="hero">
+ <div class="wm" aria-hidden="true">ROBOTICHAND</div>
+ <div>
+  <span class="tag">ESP32 · 5 servo MG996R</span>
+  <h1>Robot tangan 5 jari berbasis ESP32.</h1>
+  <p class="lead">Gerakan jari dibaca dari webcam, dikirim melalui server Node.js ke ESP32 lewat WiFi atau USB, lalu menggerakkan lima servo.</p>
+  <div class="cta"><a class="btn p" href="simulasi.html">Lihat simulasi</a><a class="btn" href="robot-hand.html">Kontrol robot</a></div>
+ </div>
+ <div><div class="stage"><canvas id="c"></canvas><div class="hint">Seret untuk memutar</div></div>
+  <div class="bar ctl" id="views"><button class="btn" id="auto">Putar</button><button class="btn" data-v="front">Depan</button><button class="btn" data-v="back">Belakang</button><button class="btn" data-v="machine">Mesin</button></div></div>
+</div>
+</main>
+<section class="s"><div class="wrap">
+ <div class="lbl">01 / Komponen</div><h2>Komponen utama</h2>
+ <div class="cmp" id="cmp">
+  <article class="cp on" data-k="esp32" tabindex="0" role="button" aria-expanded="true" aria-label="ESP32 DevKit V1">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">01</span><h3>ESP32 DevKit V1</h3><p>Mikrokontroler utama. Menerima perintah lewat WiFi atau USB dan mengirim sinyal PWM ke servo.</p></div>
+    <div class="cp-b"><div class="cp-m"><canvas id="cv"></canvas></div><div class="cp-x"><span class="cp-n">01</span><h3>ESP32 DevKit V1</h3><p>Mikrokontroler utama. Menerima perintah lewat WiFi atau USB dan mengirim sinyal PWM ke servo.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="servo" tabindex="0" role="button" aria-expanded="false" aria-label="5 servo MG996R">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">02</span><h3>5 servo MG996R</h3><p>Satu servo untuk tiap jari. Horn 5 cm menarik tali untuk menekuk jari.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">02</span><h3>5 servo MG996R</h3><p>Satu servo untuk tiap jari. Horn 5 cm menarik tali untuk menekuk jari.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="battery" tabindex="0" role="button" aria-expanded="false" aria-label="Baterai 2 × 18650">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">03</span><h3>Baterai 2 × 18650</h3><p>Susunan seri 2S (7,4 V nominal) dengan proteksi BMS 2S 20A.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">03</span><h3>Baterai 2 × 18650</h3><p>Susunan seri 2S (7,4 V nominal) dengan proteksi BMS 2S 20A.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="charger" tabindex="0" role="button" aria-expanded="false" aria-label="Charger USB-C">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">04</span><h3>Charger USB-C</h3><p>Mengisi baterai dari charger 5 V 2 A. Robot tetap bisa dipakai saat pengisian.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">04</span><h3>Charger USB-C</h3><p>Mengisi baterai dari charger 5 V 2 A. Robot tetap bisa dipakai saat pengisian.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="xl4015" tabindex="0" role="button" aria-expanded="false" aria-label="Buck XL4015">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">05</span><h3>Buck XL4015</h3><p>Menurunkan tegangan ke 6 V untuk jalur servo.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">05</span><h3>Buck XL4015</h3><p>Menurunkan tegangan ke 6 V untuk jalur servo.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="mini360" tabindex="0" role="button" aria-expanded="false" aria-label="Buck Mini360">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">06</span><h3>Buck Mini360</h3><p>Jalur 5 V terpisah untuk ESP32.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">06</span><h3>Buck Mini360</h3><p>Jalur 5 V terpisah untuk ESP32.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="fuse" tabindex="0" role="button" aria-expanded="false" aria-label="Fuse dan saklar">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">07</span><h3>Fuse dan saklar</h3><p>Fuse 10 Ampere dan saklar on/off pada jalur beban.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">07</span><h3>Fuse dan saklar</h3><p>Fuse 10 Ampere dan saklar on/off pada jalur beban.</p></div></div>
+   </div>
+  </article>
+  <article class="cp" data-k="frame" tabindex="0" role="button" aria-expanded="false" aria-label="Rangka dan tendon">
+   <div class="cp-bg"></div>
+   <div class="cp-in">
+    <div class="cp-s"><span class="cp-n">08</span><h3>Rangka dan tendon</h3><p>Rangka kayu dengan jari tiga ruas yang ditekuk menggunakan tali.</p></div>
+    <div class="cp-b"><div class="cp-m"></div><div class="cp-x"><span class="cp-n">08</span><h3>Rangka dan tendon</h3><p>Rangka kayu dengan jari tiga ruas yang ditekuk menggunakan tali.</p></div></div>
+   </div>
+  </article>
+ </div>
+</div></section>
+<section class="s"><div class="wrap">
+ <div class="lbl">02 / Fitur</div><h2>Fitur</h2>
+ <p class="lead">Pilih satu fitur untuk melihat gambaran 3D-nya.</p>
+ <div class="fx">
+  <ul class="feat" id="feat">
+   <li class="on" data-k="track" data-cap="21 titik landmark tangan dibaca dari bidang pandang webcam." tabindex="0" role="button" aria-expanded="true" aria-controls="fxStage"><div class="fh"><span>01</span><h3>Hand tracking</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>Posisi jari dibaca dari webcam di browser, lalu diubah menjadi target gerak tiap servo.</p></div></div></li>
+   <li data-k="conn" data-cap="Perintah yang sama mengalir lewat gelombang WiFi atau kabel USB ke ESP32." tabindex="0" role="button" aria-expanded="false" aria-controls="fxStage"><div class="fh"><span>02</span><h3>Koneksi WiFi atau USB</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>Data dikirim lewat WiFi atau kabel USB dengan format perintah yang sama.</p></div></div></li>
+   <li data-k="cal" data-cap="Horn servo menyapu dari sudut buka ke sudut tutup yang tersimpan." tabindex="0" role="button" aria-expanded="false" aria-controls="fxStage"><div class="fh"><span>03</span><h3>Kalibrasi servo</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>Sudut buka dan tutup tiap jari dapat diatur dan disimpan di ESP32.</p></div></div></li>
+   <li data-k="speed" data-cap="Target berpindah seketika, servo mengikuti dengan laju yang dibatasi." tabindex="0" role="button" aria-expanded="false" aria-controls="fxStage"><div class="fh"><span>04</span><h3>Kecepatan gerak</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>Kecepatan servo dapat dibatasi agar gerakan lebih halus.</p></div></div></li>
+   <li data-k="power" data-cap="Arus normal mengalir; lonjakan arus diputus fuse sebelum merusak baterai." tabindex="0" role="button" aria-expanded="false" aria-controls="fxStage"><div class="fh"><span>05</span><h3>Proteksi daya</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>BMS, fuse, dan kapasitor melindungi baterai dan servo.</p></div></div></li>
+   <li data-k="sim" data-cap="Atur jumlah jari terbuka, jari lain menekuk tanpa menyalakan robot." tabindex="0" role="button" aria-expanded="false" aria-controls="fxStage"><div class="fh"><span>06</span><h3>Simulasi 3D</h3><i class="fc" aria-hidden="true"></i></div><div class="fb"><div class="fbi"><p>Gerakan jari dapat dicoba pada model 3D tanpa menyalakan robot.</p></div></div></li>
+  </ul>
+  <div class="fx-stage" id="fxStage">
+   <canvas id="fxc" aria-label="Visual 3D fitur"></canvas>
+   <div class="fx-hint">Seret untuk memutar</div>
+   <div class="fx-cap"><div id="fxCap"><b id="fxN"></b><h4 id="fxT"></h4><p id="fxD"></p></div></div>
+  </div>
+ </div>
+</div></section>
+<section class="s"><div class="wrap">
+ <div class="lbl">03 / Alur</div><h2>Alur data</h2>
+ <p class="lead">Dari gerakan tangan di depan webcam sampai servo menarik tali.</p>
+ <ol class="pipe" aria-label="Alur data dari webcam ke servo">
+  <li class="pn" style="--i:0"><div class="pn-top"><span class="pn-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="7"/><circle cx="12" cy="10" r="2.5"/><path d="M8 21h8M12 17v4"/></svg></span><span class="pn-n">01</span></div><div class="pn-tx"><h3>Webcam</h3><p>Menangkap gambar tangan.</p></div></li>
+  <li class="pl" style="--i:0" aria-hidden="true"><i></i></li>
+  <li class="pn" style="--i:1"><div class="pn-top"><span class="pn-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9.5 6.5h.01"/></svg></span><span class="pn-n">02</span></div><div class="pn-tx"><h3>Browser</h3><p>Membaca posisi tiap jari.</p></div></li>
+  <li class="pl" style="--i:1" aria-hidden="true"><i></i></li>
+  <li class="pn" style="--i:2"><div class="pn-top"><span class="pn-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"/></svg></span><span class="pn-n">03</span></div><div class="pn-tx"><h3>Server Node.js</h3><p>Meneruskan perintah ke robot.</p></div></li>
+  <li class="pl" style="--i:2" aria-hidden="true"><i></i></li>
+  <li class="pn" style="--i:3"><div class="pn-top"><span class="pn-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span><span class="pn-n">04</span></div><div class="pn-tx"><h3>ESP32</h3><p>Menerima lewat WiFi atau USB.</p></div></li>
+  <li class="pl" style="--i:3" aria-hidden="true"><i></i></li>
+  <li class="pn" style="--i:4"><div class="pn-top"><span class="pn-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="11" height="9" rx="2"/><circle cx="17.5" cy="12.5" r="2.2"/><path d="M17.5 12.5l3-6"/></svg></span><span class="pn-n">05</span></div><div class="pn-tx"><h3>Servo</h3><p>Menarik tali untuk menekuk jari.</p></div></li>
+ </ol>
+</div></section>
+<footer class="sf"><div class="wrap">
+ <div class="sf-top">
+  <div class="sf-brand">
+   <a class="sf-b" href="index.html"><svg class="sf-logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#f5b82e"/><g fill="#111"><rect x="9.5" y="17" width="16" height="8" rx="2.5"/><rect x="9.5" y="13.5" width="3" height="5.5" rx="1"/><rect x="13.83" y="13.5" width="3" height="5.5" rx="1"/><rect x="18.17" y="13.5" width="3" height="5.5" rx="1"/><rect x="22.5" y="13.5" width="3" height="5.5" rx="1"/><rect class="f" x="9.5" y="8" width="3" height="4.5" rx="1.5"/><rect class="f" x="13.83" y="5.5" width="3" height="7" rx="1.5"/><rect class="f" x="18.17" y="7" width="3" height="5.5" rx="1.5"/><rect class="f" x="22.5" y="9.5" width="3" height="3" rx="1.5"/><path d="M9.5 22.5 5.8 18" stroke="#111" stroke-width="3" stroke-linecap="round" fill="none"/></g><circle cx="17.5" cy="21" r="1.2" fill="#f5b82e"/></svg>RoboticHand</a>
+   <p>Robot tangan 5 jari berbasis ESP32 dan servo MG996R. Gerakan jari dibaca dari webcam, lalu ditiru oleh robot.</p>
+  </div>
+  <nav class="sf-col" aria-label="Halaman"><h4>Halaman</h4><ul><li><a href="index.html">Home</a></li><li><a href="simulasi.html">Simulasi</a></li><li><a href="robot-hand.html">Robotic Hand</a></li></ul></nav>
+  <div class="sf-col"><h4>Dibangun dengan</h4><ul><li>ESP32 DevKit V1</li><li>Servo MG996R</li><li>Node.js</li><li>three.js</li></ul></div>
+ </div>
+ <div class="sf-bot"><span>© <span id="sfYr">2026</span> RoboticHand</span><button class="sf-up" id="sfUp" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Kembali ke atas</button></div>
+ <div class="sf-wm" aria-hidden="true"><div class="sf-wmi"><span>ROBOTICHAND</span></div></div>
+</div></footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="robot3d.js"></script>
+<script src="components3d.js"></script>
+<script src="features3d.js"></script>
+<script>
+const r=createRobot(document.getElementById('c'),{auto:true});
+const ab=document.getElementById('auto');ab.onclick=()=>r.toggleAuto();
+document.querySelectorAll('#views [data-v]').forEach(b=>b.onclick=()=>r.view(b.dataset.v));
+setInterval(()=>ab.classList.toggle('on',r.isAuto()),250);
+let n=5;setInterval(()=>r.setFingers(n=(n+1)%6),1800);
+</script><script>
+(function(){
+const cards=[...document.querySelectorAll('#cmp .cp')],cv=document.getElementById('cv'),V=window.createComponentViewer?createComponentViewer(cv):null;
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches,EASE='cubic-bezier(.2,.8,.2,1)',DUR=750;
+function apply(c){
+  cards.forEach(x=>{const on=x===c;x.classList.toggle('on',on);x.setAttribute('aria-expanded',String(on))});
+  c.querySelector('.cp-m').appendChild(cv);if(V)V.show(c.dataset.k);
+}
+function act(c){
+  if(reduce){apply(c);return}
+  cards.forEach(x=>x.getAnimations({subtree:true}).forEach(a=>a.cancel()));
+  const first=new Map(cards.map(x=>[x,x.getBoundingClientRect()]));
+  apply(c);
+  cards.forEach(x=>{
+    const f=first.get(x),l=x.getBoundingClientRect(),dx=f.left-l.left,dy=f.top-l.top,sx=f.width/l.width,sy=f.height/l.height;
+    if(Math.abs(sx-1)>.02||Math.abs(sy-1)>.02){
+      x.style.zIndex=3;
+      x.querySelector('.cp-bg').animate([{transformOrigin:'0 0',transform:'translate('+dx+'px,'+dy+'px) scale('+sx+','+sy+')'},{transformOrigin:'0 0',transform:'none'}],{duration:DUR,easing:EASE}).onfinish=()=>{x.style.zIndex=''};
+      x.querySelector('.cp-in').animate([{opacity:0},{opacity:0,offset:.45},{opacity:1}],{duration:DUR,easing:'linear'});
+    }else if(Math.abs(dx)>1||Math.abs(dy)>1){
+      x.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:DUR,easing:EASE});
+    }
+  });
+  setTimeout(()=>c.scrollIntoView({behavior:'smooth',block:'nearest'}),DUR*.6);
+}
+cards.forEach(c=>{
+  c.addEventListener('click',()=>{if(!c.classList.contains('on'))act(c)});
+  c.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&!c.classList.contains('on')){e.preventDefault();act(c)}});
+});
+apply(cards[0]);
+})();
+</script>
+<script>
+(function(){
+const items=[...document.querySelectorAll('#feat li')],cv=document.getElementById('fxc'),stage=document.getElementById('fxStage');
+const capBox=document.getElementById('fxCap'),capN=document.getElementById('fxN'),capT=document.getElementById('fxT'),capD=document.getElementById('fxD');
+let V=null,cur=items[0],tm=0;
+function cap(li,instant){
+  const fill=()=>{capN.textContent=li.querySelector('.fh span').textContent+' / 0'+items.length;capT.textContent=li.querySelector('h3').textContent;capD.textContent=li.dataset.cap;capBox.classList.add('in')};
+  clearTimeout(tm);
+  if(instant){fill();return}
+  capBox.classList.remove('in');tm=setTimeout(fill,200);
+}
+function init(){
+  if(V||!window.createFeatureViewer)return;
+  V=createFeatureViewer(cv);
+  if(!V){stage.classList.add('nogl');return}
+  V.show(cur.dataset.k);
+}
+// canvas WebGL baru dibuat saat section Fitur mendekati layar
+if('IntersectionObserver' in window)new IntersectionObserver((e,o)=>{if(e.some(x=>x.isIntersecting)){init();o.disconnect()}},{rootMargin:'400px'}).observe(stage);else init();
+function act(li,focus){
+  if(li===cur)return;cur=li;
+  items.forEach(x=>{const on=x===li;x.classList.toggle('on',on);x.setAttribute('aria-expanded',String(on))});
+  if(V)V.show(li.dataset.k);
+  cap(li);
+  if(focus)li.focus({preventScroll:true});
+}
+items.forEach((li,i)=>{
+  li.addEventListener('click',()=>act(li));
+  li.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();act(li)}
+    else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();act(items[(i+(e.key==='ArrowDown'?1:items.length-1))%items.length],true)}
+  });
+});
+cap(cur,true);
+})();
+</script><script>
+(function(){
+const p=document.querySelector('.pipe');
+if(p&&'IntersectionObserver' in window){p.classList.add('idle');new IntersectionObserver(e=>p.classList.toggle('idle',!e[0].isIntersecting),{threshold:.2}).observe(p)}
+const y=document.getElementById('sfYr');if(y)y.textContent=new Date().getFullYear();
+const up=document.getElementById('sfUp');
+if(up)up.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'});
+})();
+</script><script src="theme.js"></script></body></html>
