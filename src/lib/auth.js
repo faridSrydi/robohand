@@ -4,8 +4,10 @@ const AUTH_EVENT = 'robohand-auth';
 
 let cache = {
   checked: false,
+  loginEnabled: true,
   authenticated: false,
   user: null,
+  turnstileEnabled: true,
   turnstileSiteKey: '',
   turnstileMode: 'unconfigured',
   dbReady: false,
@@ -36,8 +38,10 @@ export async function fetchAuthState(force = false) {
       const data = await r.json();
       return broadcast({
         checked: true,
-        authenticated: Boolean(data.authenticated),
+        loginEnabled: data.loginEnabled !== false,
+        authenticated: data.loginEnabled === false ? true : Boolean(data.authenticated),
         user: data.user || null,
+        turnstileEnabled: data.turnstileEnabled !== false,
         turnstileSiteKey: data.turnstileSiteKey || '',
         turnstileMode: data.turnstileMode || 'unconfigured',
         dbReady: Boolean(data.dbReady),

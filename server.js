@@ -426,19 +426,25 @@ app.use(express.json({ limit: '32kb' }));
 
 // ---------- Autentikasi Login Control (MySQL + Cloudflare Turnstile) ----------
 app.get('/api/auth/me', (req, res) => {
-  const session = auth.getSession(req);
+  const loginEnabled = auth.isLoginEnabled();
+  const session = loginEnabled ? auth.getSession(req) : null;
   const ts = auth.getTurnstileConfig();
   const db = auth.getDbStatus();
   res.json({
-    authenticated: Boolean(session),
+    loginEnabled,
+    authenticated: loginEnabled ? Boolean(session) : true,
     user: session ? { username: session.username, role: session.role } : null,
-    turnstileSiteKey: ts.siteKey,
-    turnstileMode: ts.mode,
+    turnstileEnabled: loginEnabled && ts.enabled,
+    turnstileSiteKey: loginEnabled ? ts.siteKey : '',
+    turnstileMode: loginEnabled ? ts.mode : 'disabled',
     dbReady: db.ready,
   });
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  if (!auth.isLoginEnabled()) {
+    return res.json({ ok: true, user: null });
+  }
   const ip = auth.getClientIp(req);
   const rate = auth.checkRateLimit(ip);
   if (!rate.allowed) {
@@ -613,8 +619,7 @@ async function handleControl(ws, m) {
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url, 'http://localhost');
   if (pathname === '/browser') {
-    const session = auth.getSession(req);
-    if (!session) {
+    if (auth.isLoginEnabled() && !auth.getSession(req)) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       return socket.destroy();
     }
@@ -652,14 +657,28 @@ server.listen(PORT, '0.0.0.0', async () => {
       ? `Gemini Jarvis  : AKTIF (${GEMINI_MODELS[0]})`
       : 'Gemini Jarvis  : Nonaktif (isi GEMINI_API_KEY di file .env lalu restart server)'
   );
-  const dbRes = await auth.initDatabase();
-  const tsCfg = auth.getTurnstileConfig();
-  console.log(
-    dbRes.ok
-      ? `MySQL Auth     : AKTIF (${process.env.MYSQL_DATABASE || 'robotic_hand'} @ ${process.env.MYSQL_HOST || '127.0.0.1'})`
-      : `MySQL Auth     : BELUM TERHUBUNG (${dbRes.error})`
-  );
-  console.log(`Turnstile      : ${tsCfg.mode === 'live' ? 'LIVE' : tsCfg.mode === 'test' ? 'TEST KEY (lokal)' : 'BELUM DIKONFIGURASI'}`);
+  if (!auth.isLoginEnabled()) {
+    console.log('Login Control  : NONAKTIF (LOGIN_ENABLED=false)');
+  } else {
+    const dbRes = await auth.initDatabase();
+    const tsCfg = auth.getTurnstileConfig();
+    console.log(
+      dbRes.ok
+        ? `MySQL Auth     : AKTIF (${process.env.MYSQL_DATABASE || 'robotic_hand'} @ ${process.env.MYSQL_HOST || '127.0.0.1'})`
+        : `MySQL Auth     : BELUM TERHUBUNG (${dbRes.error})`
+    );
+    console.log(
+      `Turnstile      : ${
+        !tsCfg.enabled
+          ? 'NONAKTIF (TURNSTILE_ENABLED=false)'
+          : tsCfg.mode === 'live'
+            ? 'LIVE'
+            : tsCfg.mode === 'test'
+              ? 'TEST KEY (lokal)'
+              : 'BELUM DIKONFIGURASI'
+      }`
+    );
+  }
   console.log('IP untuk mode WiFi (isi di halaman setup ESP32, tambah :' + PORT + '):');
   Object.values(os.networkInterfaces()).flat()
     .filter((i) => i.family === 'IPv4' && !i.internal)

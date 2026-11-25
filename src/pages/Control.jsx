@@ -85,7 +85,8 @@ export default function Control() {
   const c = tr.ctl;
   const fingerNames = tr.fingers;
   const auth = useAuth();
-  const socket = useRobotSocket({ enabled: auth.authenticated });
+  const canControl = !auth.loginEnabled || auth.authenticated;
+  const socket = useRobotSocket({ enabled: canControl });
   const { connected, status, ports, cfg, pos, error, send, sendJson } = socket;
 
   const [cal, setCal] = useState(loadCal);
@@ -410,7 +411,7 @@ export default function Control() {
   };
 
   const voice = useVoiceControl({
-    enabled: auth.authenticated,
+    enabled: canControl,
     onPose: (pose, preset) => applyShortcut(pose, preset),
     onLed: applyVoiceLed,
     onUi: applyVoiceUi,
@@ -513,7 +514,7 @@ export default function Control() {
     await auth.logout();
   };
 
-  const locked = !auth.authenticated;
+  const locked = auth.loginEnabled && !auth.authenticated;
 
   return (
     <Page className="sim-page">
@@ -658,7 +659,7 @@ export default function Control() {
               <div className="panel-head-top">
                 <h2>{c.panelTitle}</h2>
                 <div className="panel-head-actions">
-                  {auth.authenticated && (
+                  {auth.loginEnabled && auth.authenticated && (
                     <button
                       type="button"
                       className="icon-btn panel-logout-btn"
@@ -934,8 +935,9 @@ export default function Control() {
       )}
 
       <AnimatePresence>
-        {auth.checked && !auth.authenticated && (
+        {auth.checked && auth.loginEnabled && !auth.authenticated && (
           <LoginModal
+            turnstileEnabled={auth.turnstileEnabled}
             siteKey={auth.turnstileSiteKey}
             mode={auth.turnstileMode}
             onSubmit={auth.login}

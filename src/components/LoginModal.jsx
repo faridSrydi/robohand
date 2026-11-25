@@ -37,7 +37,7 @@ function loadTurnstileScript() {
   return turnstileScriptPromise;
 }
 
-export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
+export default function LoginModal({ turnstileEnabled = true, siteKey, mode, onSubmit, onCancel }) {
   const { theme } = useTheme();
   const { lang, tr } = useI18n();
   const a = tr.auth;
@@ -64,7 +64,7 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
 
   // Render widget Cloudflare Turnstile (otomatis mengikuti tema gelap/terang & bahasa)
   useEffect(() => {
-    if (!siteKey) return undefined;
+    if (!turnstileEnabled || !siteKey) return undefined;
     let alive = true;
     setWidgetReady(false);
     setWidgetErr('');
@@ -112,7 +112,7 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
         widgetIdRef.current = null;
       }
     };
-  }, [siteKey, theme, lang, a.errTurnstileLoad]);
+  }, [turnstileEnabled, siteKey, theme, lang, a.errTurnstileLoad]);
 
   const resetTurnstile = () => {
     setToken('');
@@ -141,7 +141,7 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
       setError(a.errEmpty);
       return;
     }
-    if (!token) {
+    if (turnstileEnabled && !token) {
       setError(a.errTurnstileMissing);
       return;
     }
@@ -151,13 +151,13 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
     const res = await onSubmit({
       username: username.trim(),
       password,
-      turnstileToken: token,
+      turnstileToken: turnstileEnabled ? token : '',
     });
     setSubmitting(false);
 
     if (!res?.ok) {
       setError(mapError(res?.reason, res?.retrySec));
-      resetTurnstile();
+      if (turnstileEnabled) resetTurnstile();
     }
   };
 
@@ -201,7 +201,7 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
           </button>
         </div>
 
-        <p className="auth-desc">{a.desc}</p>
+        <p className="auth-desc">{turnstileEnabled ? a.desc : a.descNoCf}</p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="auth-field">
@@ -242,22 +242,24 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
             </div>
           </div>
 
-          <div className="auth-turnstile">
-            {siteKey ? (
-              <>
-                {!widgetReady && !widgetErr && (
-                  <div className="auth-ts-loading">{a.loadingCf}</div>
-                )}
-                <div ref={slotRef} className="auth-ts-slot" />
-                {mode === 'test' && (
-                  <span className="auth-ts-badge">{a.testModeNote}</span>
-                )}
-              </>
-            ) : (
-              <p className="auth-err">{a.errTurnstileConfig}</p>
-            )}
-            {widgetErr && <p className="auth-err">{widgetErr}</p>}
-          </div>
+          {turnstileEnabled && (
+            <div className="auth-turnstile">
+              {siteKey ? (
+                <>
+                  {!widgetReady && !widgetErr && (
+                    <div className="auth-ts-loading">{a.loadingCf}</div>
+                  )}
+                  <div ref={slotRef} className="auth-ts-slot" />
+                  {mode === 'test' && (
+                    <span className="auth-ts-badge">{a.testModeNote}</span>
+                  )}
+                </>
+              ) : (
+                <p className="auth-err">{a.errTurnstileConfig}</p>
+              )}
+              {widgetErr && <p className="auth-err">{widgetErr}</p>}
+            </div>
+          )}
 
           {error && (
             <div className="auth-err" role="alert">
@@ -268,7 +270,7 @@ export default function LoginModal({ siteKey, mode, onSubmit, onCancel }) {
           <button
             type="submit"
             className="btn btn-primary auth-submit"
-            disabled={submitting || !siteKey || !token}
+            disabled={submitting || (turnstileEnabled && (!siteKey || !token))}
           >
             {submitting ? a.signingIn : a.signIn}
           </button>

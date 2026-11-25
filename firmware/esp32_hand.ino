@@ -30,8 +30,21 @@
 #include <ESP32Servo.h>
 #include <Adafruit_NeoPixel.h>
 
+// Definisi struct di bagian atas agar prototipe otomatis Arduino IDE selalu mengenali tipenya
+struct LedCfg { int mode; int r, g, b; int bright; int speed; int rgb; };
+struct ServoCfg { float open; float close; };
+struct ThumbCfg {
+  int neutral;    // pulsa berhenti (us), biasanya sekitar 1500 tapi tiap servo beda
+  int power;      // selisih pulsa dari neutral (us). Makin besar makin cepat
+  int dir;        // +1 / -1: arah putar yang MENUTUP jempol
+  int closeMs;    // waktu putar dari terbuka penuh sampai tertutup penuh (ms)
+  int openMs;     // waktu putar dari tertutup penuh sampai terbuka penuh (ms)
+};
+void ledColor(const LedCfg& L, uint32_t st, int i, uint8_t& r, uint8_t& g, uint8_t& b);
+
 const char* AP_NAME  = "HandRobot-Setup";
 const char* HOSTNAME = "handrobot";          // -> http://handrobot.local
+const char* DEFAULT_SERVER = "robotic-hand.my.id:3000";
 const int   RESET_PIN = 0;                   // tombol BOOT
 // Urutan: jempol (kontinu 360°), telunjuk, tengah, manis, kelingking (180°)
 const int SERVO_PINS[5] = {13, 14, 25, 26, 27};
@@ -147,8 +160,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
     </div>
     <div class="fld">
       <label for="server">Alamat Server</label>
-      <input type="text" id="server" placeholder="192.168.1.10:3000" autocapitalize="none" autocomplete="off">
-      <p class="hint">Isi IP laptop yang tampil di terminal saat <b>npm start</b>, contoh <b>192.168.1.10:3000</b>.</p>
+      <input type="text" id="server" value="robotic-hand.my.id:3000" placeholder="robotic-hand.my.id:3000" autocapitalize="none" autocomplete="off">
+      <p class="hint">Default: <b>robotic-hand.my.id:3000</b> (atau isi IP laptop seperti <b>192.168.1.10:3000</b> saat tes lokal).</p>
     </div>
     <button class="go" id="go" type="submit">Simpan &amp; Hubungkan</button>
   </form>
@@ -184,7 +197,7 @@ $('net').onchange=()=>{$('manual').style.display=$('net').value==='__manual'?'bl
 $('rescan').onclick=()=>scan(true);
 $('show').onclick=()=>{const s=$('pass').type==='password';$('pass').type=s?'text':'password';$('show').textContent=s?'Tutup':'Lihat';$('show').setAttribute('aria-pressed',String(s))};
 fetch('/info').then(r=>r.json()).then(i=>{
-  saved=i;$('server').value=i.server||'';
+  saved=i;$('server').value=i.server||'robotic-hand.my.id:3000';
   if(i.connected){$('pill').classList.add('on');$('status').textContent='Tersambung · '+i.ssid+' ('+i.ip+')'}
   scan();
 }).catch(scan);
@@ -400,7 +413,6 @@ void bootJingle() {
 // 10 Mati
 // Pelangi dan Api memakai warna sendiri, animasi lain memakai warna pilihan.
 const int LED_MODES = 11;
-struct LedCfg { int mode; int r, g, b; int bright; int speed; int rgb; };
 LedCfg led[2] = {{0, 255, 170, 30, LED_BRIGHTNESS, 60, 0},     // speed 1 (pelan) - 100 (cepat), rgb 0/1
                  {0, 255, 170, 30, LED_BRIGHTNESS, 60, 0}};
 Adafruit_NeoPixel* strips[2] = {&strip1, &strip2};
@@ -628,14 +640,6 @@ void ledSet(int target, int m, int r, int g, int b, int br, int sp, int rgb) {
 //
 // Jempol = index 0 = servo kontinu 360°. Pulsa 1500 us (neutral) = berhenti, lebih/kurang = berputar.
 // Posisi jempol (0-100) diperkirakan dari lama waktu putar.
-struct ServoCfg { float open; float close; };
-struct ThumbCfg {
-  int neutral;    // pulsa berhenti (us), biasanya sekitar 1500 tapi tiap servo beda
-  int power;      // selisih pulsa dari neutral (us). Makin besar makin cepat
-  int dir;        // +1 / -1: arah putar yang MENUTUP jempol
-  int closeMs;    // waktu putar dari terbuka penuh sampai tertutup penuh (ms)
-  int openMs;     // waktu putar dari tertutup penuh sampai terbuka penuh (ms)
-};
 ServoCfg cfg[5];                    // index 0 (jempol) tidak dipakai
 ThumbCfg thumb;
 float thumbPos = 0;                 // perkiraan posisi jempol 0 (buka) - 100 (tutup)
@@ -897,7 +901,8 @@ void setup() {
 
   cSsid = prefs.getString("ssid", "");
   cPass = prefs.getString("pass", "");
-  cServer = prefs.getString("server", "");
+  cServer = prefs.getString("server", DEFAULT_SERVER);
+  if (cServer.length() == 0) cServer = DEFAULT_SERVER;
   loadConfig();
 
   ESP32PWM::allocateTimer(0);

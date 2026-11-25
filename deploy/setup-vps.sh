@@ -51,6 +51,9 @@ NODE_ENV=production
 # Isi dengan API key Gemini kamu (https://aistudio.google.com/apikey)
 GEMINI_API_KEY=
 
+# Login halaman Control (set LOGIN_ENABLED=false jika tidak perlu login)
+LOGIN_ENABLED=true
+
 # Secret sesi login (otomatis dibuat acak)
 AUTH_SECRET=${AUTH_SECRET}
 
@@ -64,7 +67,9 @@ MYSQL_DATABASE=${DB_NAME}
 DEFAULT_ADMIN_USER=robohand
 DEFAULT_ADMIN_PASS=robohandti24
 
-# WAJIB isi dari Cloudflare Dashboard -> Turnstile -> Add Widget (Domain: ${DOMAIN})
+# Cloudflare Turnstile (set TURNSTILE_ENABLED=false untuk menonaktifkan)
+# WAJIB isi key dari Cloudflare Dashboard -> Turnstile -> Add Widget (Domain: ${DOMAIN}) jika true
+TURNSTILE_ENABLED=true
 TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
 ENV
