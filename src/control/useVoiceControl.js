@@ -61,12 +61,24 @@ function normalizeTranscript(s) {
     .replace(/\b(cepetin|cepatin)\b/gi, 'percepat')
     .replace(/\b(pelanin|lambatin)\b/gi, 'pelankan')
     .replace(/\b(rain\s+bow|renbo)\b/gi, 'rainbow')
-    .replace(/\b(metior|meteors)\b/gi, 'meteor')
+    .replace(/\b(metior|meteors|meteorite|meter|meters|midyear)\b/gi, 'meteor')
     .replace(/\b(skener|skaner|scanners)\b/gi, 'scanner')
     .replace(/\b(twinkel|twinkling)\b/gi, 'twinkle')
     .replace(/\b(tekhnik|tehnik|tehnix|teknic|technique|techniques|technic|technics|technical|tech\s+nick|tek\s+nik|titanic)\b/gi, 'teknik')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Normalisasi khusus konteks saat Studio 3D LED sedang terbuka di layar:
+// STT en-US sangat sering mendengar "meteor" -> "metal"/"media"/"metro"/"mature", "breath" -> "bread", "chase" -> "cheese"/"chess"
+function applyLedContextNorm(text, state) {
+  if (!state?.ledStudioOpen || !text) return text;
+  return text
+    .replace(/\b(metal|media|metro|mature|matthew|mitchell|me\s+to|me\s+too|me\s+for)\b/gi, 'meteor')
+    .replace(/\b(salad|solids)\b/gi, 'solid')
+    .replace(/\b(bread|brad|breeze)\b/gi, 'breath')
+    .replace(/\b(cheese|chess)\b/gi, 'chase')
+    .replace(/\b(fayer|buyer|higher)\b/gi, 'fire');
 }
 
 // Jarak edit Levenshtein ringan untuk memulihkan salah ketik/salah dengar 1-2 huruf dari STT
@@ -132,8 +144,8 @@ function fuzzyRepair(text) {
     .join(' ');
 }
 
-function cleanTranscript(s) {
-  return fuzzyRepair(normalizeTranscript(s));
+function cleanTranscript(s, state = null) {
+  return applyLedContextNorm(fuzzyRepair(normalizeTranscript(s)), state);
 }
 
 // Cek apakah ucapan masih berupa awalan gantung yang belum punya target (JANGAN blokir "close led", "open led", "strip 1/2"!)
@@ -216,7 +228,7 @@ function extractPercent(text, nearRe) {
   return null;
 }
 
-function parseLedCommand(text) {
+function parseLedCommand(text, state = null) {
   // Jangan salah kira "dark mode" / "light mode" / "camera brightness" / "finger speed" sebagai perintah LED
   const isThemePhrase = /\b(dark\s*(mode|theme)|light\s*(mode|theme)|night\s*mode|day\s*mode|mode\s*(gelap|terang)|tema\s*(gelap|terang))\b/i.test(text);
   if (isThemePhrase && !/\b(led|strip|lampu)\b/i.test(text)) return null;
@@ -240,8 +252,10 @@ function parseLedCommand(text) {
     patch.strip = 0;
   }
 
-  // Matikan LED (hanya bila menyebut light/led/lamp/lampu agar tidak bentrok dengan "turn off camera")
-  if (/\b(light|lights|lamp|led|strip|lampu)\b/i.test(text) && /\b(turn off|switch off|off|mati|matikan|padam)\b/i.test(text)) {
+  // Matikan LED (di luar studio harus sebut light/led/strip/lampu; di dalam Studio LED cukup "off" / "turn off" / "mati")
+  const explicitLedOff = /\b(light|lights|lamp|led|strip|lampu)\b/i.test(text) && /\b(turn off|switch off|off|mati|matikan|padam)\b/i.test(text);
+  const inStudioOff = Boolean(state?.ledStudioOpen) && /^(turn\s+off|switch\s+off|off|mati|matikan|padam)$/i.test(text.trim());
+  if (explicitLedOff || inStudioOff) {
     return { key: 'led-off', label: 'LED Off', patch: { ...(patch.strip != null ? { strip: patch.strip } : {}), mode: 10 }, ensureOn: false };
   }
 
@@ -386,7 +400,7 @@ function parseUiCommand(text, state = null) {
 
   // "open LED / open LED panel / LED studio" vs "close LED / close LED panel / close overlay / close preview"
   const hasLedWord = ui.theme ? /\b(led|strip|lampu)\b/i.test(text) : /\b(led|light|lights|lamp|lampu|studio|overlay|preview|3d)\b/i.test(text);
-  const hasLedSetting = Boolean(parseLedCommand(text));
+  const hasLedSetting = Boolean(parseLedCommand(text, state));
   const wantsClose = /\b(close|hide|exit|back|kembali|keluar|tutup|sembunyikan)\b/i.test(text) && !/\bturn off\b/i.test(text);
   const wantsOpen = /\b(open|show|set|buka|tampilkan|atur)\b/i.test(text);
 
@@ -502,12 +516,17 @@ function parseUiCommand(text, state = null) {
   };
 }
 
-function findLatestHandCommand(text) {
+function findLatestHandCommand(text, state = null) {
   // Jangan salah kira angka milik strip LED / persentase / kecepatan sebagai jumlah jari
   if (/\b(strip\s*[12]|brightness|kecerahan|speed|kecepatan|smooth|smoothing|percent|persen)\b/i.test(text)) {
     return null;
   }
   const trimmed = String(text || '').trim();
+  // Saat Studio 3D LED sedang terbuka penuh, jangan gerakkan jari dari angka/kata ambigu ("metal" -> meteor, "four" -> fire, dll.)
+  // kecuali user secara eksplisit menyebut jari/hand atau gestur khas (peace/fist/teknik/fuck)
+  if (state?.ledStudioOpen && !/\b(finger|fingers|jari|hand|tangan|peace|fuck|middle finger|teknik|fist|kepal)\b/i.test(trimmed)) {
+    return null;
+  }
   for (const h of SHORT_HOMOPHONE_HAND) {
     if (h.re.test(trimmed)) return { type: 'hand', ...h };
   }
@@ -527,7 +546,7 @@ function findLatestHandCommand(text) {
   return best;
 }
 
-// Cek apakah kalimat bisa dieksekusi LANGSUNG (~150ms lokal, nol jeda API)
+// Cek apakah kalimat bisa dieksekusi LANGSUNG (~120ms lokal, nol jeda API)
 // mencakup perintah jari, warna/mode LED, dan kontrol UI (kamera, panel kontrol, LED overlay)
 function canHandleInstantly(text, state = null) {
   const cleaned = text
@@ -539,8 +558,8 @@ function canHandleInstantly(text, state = null) {
   if (SLEEP_RE.test(cleaned) && cleaned.split(/\s+/).length <= 4) return 'sleep';
 
   const uiCmd = parseUiCommand(text, state);
-  const ledCmd = parseLedCommand(text);
-  const handCmd = findLatestHandCommand(cleaned);
+  const ledCmd = parseLedCommand(text, state);
+  const handCmd = findLatestHandCommand(cleaned, state);
   if (uiCmd || ledCmd) return 'cmd';
   if (handCmd) {
     const leftover = HAND_COMMANDS.reduce((s, c) => s.replace(new RegExp(c.re.source, 'gi'), ' '), cleaned)
@@ -899,17 +918,17 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
   const executeLocal = useCallback(
     (activeText, segIdx, wordCount, now, isWakeTriggered) => {
       const prev = lastExecRef.current;
-      const text = cleanTranscript(activeText);
+      const curState = getStateRef.current?.() || null;
+      const text = cleanTranscript(activeText, curState);
       if (!text) return false;
 
-      const curState = getStateRef.current?.() || null;
       // Sapaan ("hello", "hi", "hey", "robohand", "jarvis") atau wake word
       const isPureGreeting = canHandleInstantly(text, curState) === 'wake';
       if (isWakeTriggered || isPureGreeting) {
         const afterWake = text.replace(WAKE_RE, ' ').replace(/\b(hello|hi|hey|halo|hai)\b/gi, ' ').trim();
         const uiCmd = afterWake ? parseUiCommand(afterWake, curState) : null;
-        const ledCmd = afterWake ? parseLedCommand(afterWake) : null;
-        const handCmd = afterWake && !uiCmd ? findLatestHandCommand(afterWake) : null;
+        const ledCmd = afterWake ? parseLedCommand(afterWake, curState) : null;
+        const handCmd = afterWake && !uiCmd && !ledCmd ? findLatestHandCommand(afterWake, curState) : null;
 
         if (!uiCmd && !ledCmd && !handCmd) {
           if (prev.key === '__wake' && prev.segIdx === segIdx && now - prev.time < 1800) return true;
@@ -938,8 +957,8 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
 
       const cleanForCmd = text.replace(WAKE_RE, ' ').trim();
       const uiCmd = parseUiCommand(cleanForCmd, curState);
-      const ledCmd = parseLedCommand(cleanForCmd);
-      const handCmd = !uiCmd && !ledCmd ? findLatestHandCommand(cleanForCmd) : null;
+      const ledCmd = parseLedCommand(cleanForCmd, curState);
+      const handCmd = !uiCmd && !ledCmd ? findLatestHandCommand(cleanForCmd, curState) : null;
 
       if (!uiCmd && !ledCmd && !handCmd) return false;
 
@@ -1212,7 +1231,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         if (!rawAlt) continue;
         const altWords = rawAlt.split(/\s+/).filter(Boolean);
         const rawSlice = offset > 0 ? (altWords.length > offset ? altWords.slice(offset).join(' ') : '') : rawAlt;
-        const cleaned = cleanTranscript(rawSlice);
+        const cleaned = cleanTranscript(rawSlice, curState);
         if (!cleaned || seen.has(cleaned)) continue;
         seen.add(cleaned);
 
