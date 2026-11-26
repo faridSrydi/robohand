@@ -40,8 +40,8 @@ catch { console.log('[!] Paket msedge-tts belum terpasang -> TTS pakai suara bro
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_MODELS = [
-  process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-  'gemini-flash-lite-latest',
+  process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
 ].filter((v, i, a) => v && a.indexOf(v) === i);
 
@@ -50,7 +50,8 @@ NEVER call the user "Sir", "Ma'am", or "Boss". Always reply in natural, concise,
 
 STRICT SCOPE RULE:
 - ONLY answer topics directly related to this Robohand robotic hand project: greetings, hand/finger movements, gestures, LED strip controls, control page UI actions (camera, control panel, LED overlay, dark/light theme, tracking/manual mode, WiFi/USB mode, servo calibration panel), hardware components, GPIO pins, power/battery protection, calibration, WiFi/USB connection, MediaPipe hand tracking, 3D simulation, and its creator Farid Suryadi.
-- STT PHONETIC TOLERANCE: Input comes from noisy speech-to-text by an Indonesian speaker speaking English. Always infer obvious phonetic STT mishearings of Robohand commands BEFORE refusing (e.g. "spaniel"/"close funnel"/"clothes panel" = "close panel", "duck mode" = "dark mode", "like mode" = "light mode", "open lead/lady" = "open LED", "clothes camera" = "close camera").
+- INTENT ACCURACY: Answer exactly what the user asked in their latest message. Use "STT alternates" when the primary transcript is nonsense or off-topic but an alternate is a clear Robohand command. Never answer a different question than the one asked. If the transcript is too garbled to understand, reply "Sorry, could you repeat that?" with all actions null.
+- STT PHONETIC TOLERANCE: Input comes from noisy speech-to-text by an Indonesian speaker (English or Indonesian). Always infer obvious phonetic STT mishearings of Robohand commands BEFORE refusing (e.g. "spaniel"/"close funnel"/"clothes panel" = "close panel", "duck mode" = "dark mode", "like mode" = "light mode", "open lead/lady" = "open LED", "clothes camera" = "close camera").
 - If the user clearly asks about something UNRELATED to this robotic hand project (weather, news, recipes, movies, politics, homework, general trivia), politely refuse in one concise sentence and state that you only handle the Robohand project. Set "pose": null, "led": null, and "ui": null when refusing.
 - Never invent hardware specs outside the project facts below.
 
@@ -122,7 +123,59 @@ const JARVIS_SCHEMA = {
   required: ['reply'],
 };
 
-async function askGeminiJarvis({ text, alts = [], history = [], state = null }) {
+// Hedged request: kirim ke model utama dulu; kalau belum menjawab dalam HEDGE_MS atau gagal (429/503),
+// langsung kirim ke model cadangan. Latensi tetap rendah tanpa menggandakan pemakaian kuota tiap request.
+const HEDGE_MS = 1100;
+const AI_TIMEOUT_MS = 4500;
+
+function runHedged(models, callModel, controllers, externalSignal) {
+  return new Promise((resolve, reject) => {
+    let next = 0;
+    let inFlight = 0;
+    let done = false;
+    const errors = [];
+    let hedgeTimer = null;
+    let globalTimer = null;
+
+    const finish = (fn, val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(hedgeTimer);
+      clearTimeout(globalTimer);
+      fn(val);
+    };
+    const abortAll = (except = -1) => controllers.forEach((c, j) => { if (j !== except) { try { c.abort(); } catch { } } });
+
+    const launch = () => {
+      if (done || next >= models.length) return false;
+      const i = next++;
+      inFlight += 1;
+      callModel(models[i], i)
+        .then((r) => {
+          if (done) return;
+          abortAll(i);
+          finish(resolve, r);
+        })
+        .catch((e) => {
+          inFlight -= 1;
+          errors.push(`${models[i]}: ${e?.message || e}`);
+          if (done) return;
+          if (!launch() && inFlight === 0) finish(reject, new Error(errors.join(' | ')));
+        });
+      return true;
+    };
+
+    if (externalSignal) {
+      if (externalSignal.aborted) return finish(reject, new Error('client_aborted'));
+      externalSignal.addEventListener('abort', () => { abortAll(); finish(reject, new Error('client_aborted')); }, { once: true });
+    }
+    globalTimer = setTimeout(() => { abortAll(); finish(reject, new Error('timeout')); }, AI_TIMEOUT_MS);
+    launch();
+    hedgeTimer = setTimeout(() => launch(), HEDGE_MS);
+  });
+}
+
+async function askGeminiJarvis({ text, alts = [], history = [], state = null, lang = 'en', signal = null }) {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) return { ok: false, reason: 'no_key' };
 
@@ -137,16 +190,15 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null }) 
   const stateNote = state
     ? `[pose:${JSON.stringify(state.pose || [])} led:${JSON.stringify(state.led || {})} cam:${state.camera || 'off'} panel:${state.panelOpen ? 'open' : 'closed'} ledOverlay:${state.ledStudioOpen ? 'open' : 'closed'} theme:${state.theme || 'dark'} mode:${state.mode || 'track'}]\n`
     : '';
-  const extraAlts = Array.isArray(alts) && alts.length > 1 ? ` (STT alts: ${alts.slice(1, 3).join(' | ')})` : '';
+  const extraAlts = Array.isArray(alts) && alts.length > 1 ? ` (STT alternates: ${alts.slice(1, 4).join(' | ')})` : '';
+  const langNote = lang === 'id' ? '[speaker language: Indonesian (STT id-ID)] ' : '[speaker language: English with Indonesian accent (STT en-US)] ';
   contents.push({
     role: 'user',
-    parts: [{ text: `${stateNote}User: ${String(text).slice(0, 320)}${extraAlts}` }],
+    parts: [{ text: `${stateNote}${langNote}User said: "${String(text).slice(0, 320)}"${extraAlts}` }],
   });
 
-  // Balap paralel 2 model tercepat (Promise.any) dengan thinkingLevel MINIMAL agar respon super cepat
-  const raceModels = GEMINI_MODELS.slice(0, 2);
+  const raceModels = GEMINI_MODELS.slice();
   const controllers = raceModels.map(() => new AbortController());
-  const globalTimer = setTimeout(() => controllers.forEach((c) => c.abort()), 2900);
 
   const callModel = async (model, idx) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -158,8 +210,8 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null }) 
         systemInstruction: { parts: [{ text: JARVIS_SYSTEM_PROMPT }] },
         contents,
         generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 140,
+          temperature: 0.2,
+          maxOutputTokens: 320,
           thinkingConfig: { thinkingLevel: 'MINIMAL' },
           responseMimeType: 'application/json',
           responseSchema: JARVIS_SCHEMA,
@@ -234,9 +286,6 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null }) 
       if (Object.keys(u).length > 0) cleanUi = u;
     }
 
-    // Hentikan request model lain yang masih jalan begitu pemenang selesai
-    controllers.forEach((c, i) => { if (i !== idx) c.abort(); });
-
     return {
       ok: true,
       model,
@@ -250,13 +299,9 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null }) 
   };
 
   try {
-    const winner = await Promise.any(raceModels.map((m, i) => callModel(m, i)));
-    clearTimeout(globalTimer);
-    return winner;
-  } catch (agg) {
-    clearTimeout(globalTimer);
-    const reasons = Array.isArray(agg?.errors) ? agg.errors.map((e) => e?.message || String(e)).join(' | ') : String(agg);
-    return { ok: false, reason: reasons };
+    return await runHedged(raceModels, callModel, controllers, signal);
+  } catch (err) {
+    return { ok: false, reason: err?.message || String(err) };
   }
 }
 
@@ -335,6 +380,52 @@ async function synthesizeGeminiMaleFallback(key) {
   return null;
 }
 
+// Job TTS bersama: sintesis bisa dimulai di server SEBELUM browser memintanya (prefetch setelah AI menjawab),
+// lalu request /api/tts berikutnya langsung ikut stream chunk yang sudah ada tanpa menunggu dari nol.
+const ttsInflight = new Map(); // text -> { chunks, done, failed, listeners:Set }
+
+function startTtsJob(key) {
+  if (!MsEdgeTTS || !EDGE_FMT || !key) return null;
+  if (ttsInflight.has(key)) return ttsInflight.get(key);
+  const job = { chunks: [], done: false, failed: false, listeners: new Set() };
+  ttsInflight.set(key, job);
+  const notify = (type, chunk) => job.listeners.forEach((fn) => { try { fn(type, chunk); } catch { } });
+
+  (async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let client = null;
+      try {
+        client = await createEdgeClient();
+        const { audioStream } = client.toStream(key, TTS_OPTS);
+        for await (const chunk of audioStream) {
+          job.chunks.push(chunk);
+          notify('data', chunk);
+        }
+        const full = Buffer.concat(job.chunks);
+        if (full.length > 100) cacheTts(key, { buf: full, mime: 'audio/mpeg' });
+        job.done = true;
+        notify('end');
+        return;
+      } catch (err) {
+        if (job.chunks.length) {
+          job.done = true;
+          notify('end');
+          return;
+        }
+        if (attempt === 1) console.log('[TTS] Edge gagal, pindah ke fallback:', err?.message || err);
+      } finally {
+        try { client?.close(); } catch { }
+      }
+    }
+    job.failed = true;
+    notify('fail');
+  })().finally(() => {
+    setTimeout(() => { if (ttsInflight.get(key) === job) ttsInflight.delete(key); }, 50);
+  });
+
+  return job;
+}
+
 // Streaming langsung MP3 chunk-per-chunk ke browser agar audio mulai berbunyi jauh lebih cepat
 async function streamMaleVoice(text, res) {
   const key = text.trim();
@@ -347,38 +438,47 @@ async function streamMaleVoice(text, res) {
     return res.send(cached.buf);
   }
 
-  if (MsEdgeTTS && EDGE_FMT) {
-    // Selalu buka koneksi Edge TTS segar (hindari WebSocket idle timeout yang bikin fallback ke suara kaku Windows)
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      let client = null;
-      let headersSent = false;
-      const chunks = [];
-      try {
-        client = await createEdgeClient();
-        const { audioStream } = client.toStream(key, TTS_OPTS);
-        for await (const chunk of audioStream) {
-          if (!headersSent) {
-            headersSent = true;
-            res.setHeader('Content-Type', 'audio/mpeg');
-            res.setHeader('Cache-Control', 'no-store');
-          }
-          chunks.push(chunk);
+  const job = startTtsJob(key);
+  if (job) {
+    const ok = await new Promise((resolve) => {
+      let started = false;
+      const begin = () => {
+        if (started) return;
+        started = true;
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Cache-Control', 'no-store');
+      };
+      const listener = (type, chunk) => {
+        if (type === 'data') {
+          begin();
           if (!res.writableEnded) res.write(chunk);
-        }
-        const full = Buffer.concat(chunks);
-        if (full.length > 100) cacheTts(key, { buf: full, mime: 'audio/mpeg' });
-        if (!res.writableEnded) res.end();
-        return;
-      } catch (err) {
-        if (headersSent) {
+        } else if (type === 'end') {
+          job.listeners.delete(listener);
+          begin();
           if (!res.writableEnded) res.end();
-          return;
+          resolve(true);
+        } else if (type === 'fail') {
+          job.listeners.delete(listener);
+          resolve(started);
+          if (started && !res.writableEnded) res.end();
         }
-        if (attempt === 1) console.log('[TTS] Edge gagal, pindah ke fallback:', err?.message || err);
-      } finally {
-        try { client?.close(); } catch { }
+      };
+      res.on('close', () => { job.listeners.delete(listener); resolve(true); });
+
+      // Kirim chunk yang sudah tersedia lebih dulu, lalu ikuti chunk baru secara live
+      if (job.chunks.length) {
+        begin();
+        for (const c of job.chunks) if (!res.writableEnded) res.write(c);
       }
-    }
+      if (job.done) {
+        begin();
+        if (!res.writableEnded) res.end();
+        return resolve(true);
+      }
+      if (job.failed) return resolve(job.chunks.length > 0);
+      job.listeners.add(listener);
+    });
+    if (ok) return;
   }
 
   const fb = await synthesizeGeminiMaleFallback(key);
@@ -495,12 +595,29 @@ app.post('/api/tts', auth.requireAuth, async (req, res) => {
 });
 
 app.post('/api/voice-ai', auth.requireAuth, async (req, res) => {
-  const { text, alts, history, state } = req.body || {};
+  const { text, alts, history, state, lang } = req.body || {};
   if (!text || !String(text).trim()) {
     return res.status(400).json({ ok: false, reason: 'empty_text' });
   }
-  const result = await askGeminiJarvis({ text: String(text).trim(), alts, history, state });
-  res.status(result.ok ? 200 : 200).json(result);
+  // Batalkan panggilan Gemini bila browser membatalkan request spekulatif (user masih melanjutkan kalimat)
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
+
+  const t0 = Date.now();
+  const result = await askGeminiJarvis({
+    text: String(text).trim(),
+    alts,
+    history,
+    state,
+    lang: lang === 'id' ? 'id' : 'en',
+    signal: ac.signal,
+  });
+  if (ac.signal.aborted || res.writableEnded) return;
+
+  // Mulai sintesis suara di server SEKARANG agar audio siap begitu browser memanggil /api/tts
+  if (result.ok && result.reply) startTtsJob(result.reply);
+  if (result.ok) result.ms = Date.now() - t0;
+  res.json(result);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

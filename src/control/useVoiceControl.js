@@ -594,6 +594,8 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
   const restartTimerRef = useRef(null);
   const interimCmdTimerRef = useRef(null);
   const interimAiTimerRef = useRef(null);
+  const aiCommitTimerRef = useRef(null);
+  const aiPendingRef = useRef(null);
   const speakTimerRef = useRef(null);
   const speakFallbackRef = useRef(null);
   const ttsSafetyRef = useRef(null);
@@ -676,6 +678,12 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     clearTimeout(restartTimerRef.current);
     clearTimeout(interimCmdTimerRef.current);
     clearTimeout(interimAiTimerRef.current);
+    clearTimeout(aiCommitTimerRef.current);
+    const p = aiPendingRef.current;
+    if (p && !p.committed) {
+      try { p.controller.abort(); } catch { }
+      aiPendingRef.current = null;
+    }
     const r = recRef.current;
     recRef.current = null;
     if (r) {
@@ -693,11 +701,11 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     }
   }, []);
 
-  const resumeRecAfterTts = useCallback((delayMs = 220) => {
+  const resumeRecAfterTts = useCallback((delayMs = 180) => {
     clearTimeout(ttsSafetyRef.current);
     clearTimeout(restartTimerRef.current);
     setSpeaking(false);
-    ignoreUntilRef.current = performance.now() + delayMs + 140;
+    ignoreUntilRef.current = performance.now() + delayMs + 90;
     if (!activeRef.current) {
       pausedForTtsRef.current = false;
       return;
@@ -871,7 +879,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     (activeText, segIdx, wordCount, now, isWakeTriggered) => {
       const prev = lastExecRef.current;
       const text = cleanTranscript(activeText);
-      if (!text) return;
+      if (!text) return false;
 
       // Sapaan ("hello", "hi", "hey", "robohand", "jarvis") atau wake word
       const isPureGreeting = canHandleInstantly(text) === 'wake';
@@ -882,27 +890,28 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         const handCmd = afterWake && !uiCmd ? findLatestHandCommand(afterWake) : null;
 
         if (!uiCmd && !ledCmd && !handCmd) {
-          if (prev.key === '__wake' && prev.segIdx === segIdx && now - prev.time < 1800) return;
+          if (prev.key === '__wake' && prev.segIdx === segIdx && now - prev.time < 1800) return true;
           armAwake();
           lastExecRef.current = { key: '__wake', time: now, segIdx, wordCount };
           setLastAction('Ready');
           onWakeChimeRef.current?.();
           speak(pick(WAKE_REPLIES));
-          return;
+          return true;
         }
         armAwake();
       }
 
-      if (!awakeRef.current) return;
+      if (!awakeRef.current) return false;
 
-      if (SLEEP_RE.test(text)) {
+      // Standby hanya untuk ucapan pendek agar kalimat panjang yang kebetulan berisi "rest/sleep" tidak salah tidur
+      if (SLEEP_RE.test(text) && text.split(/\s+/).length <= 5) {
         if (prev.key !== '__sleep' || now - prev.time > 1400) {
           lastExecRef.current = { key: '__sleep', time: now, segIdx, wordCount };
           sleepNow();
           setLastAction('Standby');
           speak(pick(SLEEP_REPLIES));
         }
-        return;
+        return true;
       }
 
       const cleanForCmd = text.replace(WAKE_RE, ' ').trim();
@@ -910,13 +919,13 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       const ledCmd = parseLedCommand(cleanForCmd);
       const handCmd = !uiCmd && !ledCmd ? findLatestHandCommand(cleanForCmd) : null;
 
-      if (!uiCmd && !ledCmd && !handCmd) return;
+      if (!uiCmd && !ledCmd && !handCmd) return false;
 
       const execKey = [uiCmd?.key, ledCmd?.key, handCmd?.key].filter(Boolean).join('+');
       // Untuk perintah relatif (+ / - kecerahan/kecepatan), izinkan dipanggil berulang asal ada jeda 450ms
       const isStepCmd = /-(up|dn)\b/.test(execKey);
-      if (!isStepCmd && prev.key === execKey && prev.segIdx === segIdx && wordCount <= prev.wordCount) return;
-      if (prev.key === execKey && now - prev.time < 480) return;
+      if (!isStepCmd && prev.key === execKey && prev.segIdx === segIdx && wordCount <= prev.wordCount) return true;
+      if (prev.key === execKey && now - prev.time < 480) return true;
 
       lastExecRef.current = { key: execKey, time: now, segIdx, wordCount };
       armAwake();
@@ -935,43 +944,72 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         labels.push(handCmd.label);
       }
       setLastAction(labels.join(' · '));
+      return true;
     },
     [armAwake, sleepNow, speak]
   );
 
-  // Kirim pertanyaan/perintah bebas ke Gemini AI di server (otomatis, sertakan alternatif STT agar tahan salah dengar)
-  const askJarvisAi = useCallback(
-    async (text, altTexts, segIdx, wordCount, hasWake) => {
-      if (thinkingRef.current) return;
+  // ---------- Gemini AI dengan request SPEKULATIF (gaya voice assistant modern) ----------
+  // Request dikirim diam-diam begitu kalimat interim stabil sejenak. Saat Chrome memfinalkan transkrip:
+  //  - jika teksnya sama -> jawaban yang sudah/sedang diproses langsung dipakai (hemat ~0.5-1 detik)
+  //  - jika teks berubah (user melanjutkan kalimat) -> request lama dibatalkan & dikirim ulang dengan kalimat utuh
+  // Jadi AI selalu menjawab kalimat LENGKAP yang benar-benar diucapkan, bukan potongan setengah kalimat.
+  const abortPendingAi = useCallback(() => {
+    const p = aiPendingRef.current;
+    if (p && !p.committed) {
+      try { p.controller.abort(); } catch { }
+      aiPendingRef.current = null;
+    }
+  }, []);
+
+  const startAiRequest = useCallback((text, altTexts, segIdx, wordCount, hasWake) => {
+    const controller = new AbortController();
+    const promise = fetch('/api/voice-ai', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        text,
+        alts: altTexts,
+        history: historyRef.current,
+        state: getStateRef.current?.() || null,
+        lang: getLang(),
+      }),
+    })
+      .then((r) => r.json().catch(() => null))
+      .catch(() => null);
+    const pending = { text, altTexts, segIdx, wordCount, hasWake, controller, promise, committed: false };
+    aiPendingRef.current = pending;
+    return pending;
+  }, []);
+
+  const commitAi = useCallback(
+    async (pending) => {
+      if (!pending || pending.committed || thinkingRef.current) return;
+      pending.committed = true;
       thinkingRef.current = true;
       setThinking(true);
       // Tandai kata-kata segmen ini sudah dikonsumsi agar tidak pernah dieksekusi ulang oleh kalimat berikutnya
-      lastExecRef.current = { key: '__ai', time: performance.now(), segIdx, wordCount };
+      lastExecRef.current = { key: '__ai', time: performance.now(), segIdx: pending.segIdx, wordCount: pending.wordCount };
       onWakeChimeRef.current?.();
 
       try {
-        const resp = await fetch('/api/voice-ai', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            alts: altTexts,
-            history: historyRef.current,
-            state: getStateRef.current?.() || null,
-          }),
-        });
-        const data = await resp.json().catch(() => null);
-        if (!activeRef.current) return;
+        const data = await pending.promise;
+        if (!activeRef.current || aiPendingRef.current !== pending) return;
 
         if (!data || !data.ok) {
-          executeLocal(text, segIdx, wordCount, performance.now(), hasWake);
+          const handled = executeLocal(pending.text, pending.segIdx, pending.wordCount, performance.now(), pending.hasWake);
+          if (!handled) {
+            setLastAction('Not understood');
+            speak('Sorry, could you repeat that?');
+          }
           return;
         }
 
         historyRef.current = [
-          ...historyRef.current.slice(-4),
-          { role: 'user', text },
+          ...historyRef.current.slice(-6),
+          { role: 'user', text: pending.text },
           { role: 'model', text: data.reply || 'Done.' },
         ];
 
@@ -988,13 +1026,10 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         }
 
         speak(data.reply || 'Done.');
-      } catch {
-        if (activeRef.current) {
-          executeLocal(text, segIdx, wordCount, performance.now(), hasWake);
-        }
       } finally {
         thinkingRef.current = false;
         setThinking(false);
+        if (aiPendingRef.current === pending) aiPendingRef.current = null;
       }
     },
     [armAwake, executeLocal, sleepNow, speak]
@@ -1026,9 +1061,12 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       clearTimeout(restartTimerRef.current);
       clearTimeout(interimCmdTimerRef.current);
       clearTimeout(interimAiTimerRef.current);
+      clearTimeout(aiCommitTimerRef.current);
       clearTimeout(speakTimerRef.current);
       clearTimeout(speakFallbackRef.current);
       clearTimeout(ttsSafetyRef.current);
+      abortPendingAi();
+      aiPendingRef.current = null;
       speakSeqRef.current += 1;
       stopAudioPlayback();
       stopMeter();
@@ -1060,7 +1098,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         try { r.stop(); } catch { }
       }
     },
-    [stopAudioPlayback, stopMeter]
+    [abortPendingAi, stopAudioPlayback, stopMeter]
   );
 
   const startRec = useCallback(() => {
@@ -1082,8 +1120,26 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     };
     r.onaudiostart = () => { if (activeRef.current) setMicStage('audio'); };
     r.onsoundstart = () => { if (activeRef.current) setMicStage('sound'); };
-    r.onspeechstart = () => { if (activeRef.current) setMicStage('speech'); };
-    r.onspeechend = () => { if (activeRef.current) setMicStage('audio'); };
+    r.onspeechstart = () => {
+      if (!activeRef.current) return;
+      setMicStage('speech');
+      clearTimeout(aiCommitTimerRef.current);
+    };
+    r.onspeechend = () => {
+      if (!activeRef.current) return;
+      setMicStage('audio');
+      // Begitu suara berhenti bicara, percepat commit request AI spekulatif yang sudah jalan di belakang layar
+      const pending = aiPendingRef.current;
+      if (pending && !pending.committed && !thinkingRef.current && !pausedForTtsRef.current) {
+        clearTimeout(aiCommitTimerRef.current);
+        aiCommitTimerRef.current = setTimeout(() => {
+          const cur = aiPendingRef.current;
+          if (cur && !cur.committed && activeRef.current && !thinkingRef.current && !pausedForTtsRef.current) {
+            commitAi(cur);
+          }
+        }, 160);
+      }
+    };
     r.onsoundend = () => { if (activeRef.current) setMicStage('audio'); };
 
     r.onresult = (e) => {
@@ -1156,10 +1212,12 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
 
       // 1) Jalur instan lokal (jari, warna/mode LED, kontrol UI):
       //    - Jika isFinal -> langsung eksekusi seketika (0ms).
-      //    - Jika interim -> tunggu stabilisasi singkat 150ms agar ucapan 2-3 kata ("strip 2 red", "open led control") tidak terpotong di tengah!
+      //    - Jika interim -> stabilisasi singkat 120ms agar perintah 2-3 kata tidak terpotong di tengah.
       clearTimeout(interimCmdTimerRef.current);
       if (awakeRef.current && matchedCmdAlt) {
         clearTimeout(interimAiTimerRef.current);
+        clearTimeout(aiCommitTimerRef.current);
+        abortPendingAi();
         if (res.isFinal) {
           executeLocal(matchedCmdAlt, segIdx, rawWordCount, now, hasWake);
         } else {
@@ -1169,50 +1227,77 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
           interimCmdTimerRef.current = setTimeout(() => {
             if (!activeRef.current || thinkingRef.current || pausedForTtsRef.current) return;
             executeLocal(capturedCmd, segIdx, capturedWords, performance.now(), capturedWake);
-          }, 150);
+          }, 120);
         }
         return;
       }
 
-      // 2) Sapaan ("Robohand"), standby, atau pertanyaan bebas ke Gemini AI
-      const dispatchFinalOrDebounced = () => {
+      // 2) Sapaan ("Robohand"), standby, atau pertanyaan/perintah bebas ke Gemini AI (spekulatif + endpointing cepat)
+      const matchedInstant = candidates.find((c) => c.kind)?.text || null;
+      const activeWords = activeText.split(/\s+/).filter(Boolean);
+      const isShortNoise =
+        activeWords.length === 1 && !/^(hello|hi|hey|halo|hai|thanks|thank|jarvis|robohand)$/i.test(activeText);
+      const isLowConf = res.isFinal && primaryConf > 0 && primaryConf < 0.35 && !hasWake;
+
+      // Jika user melanjutkan kalimat sehingga teks berubah, batalkan request spekulatif lama agar AI hanya jawab kalimat utuh
+      const existingPending = aiPendingRef.current;
+      if (existingPending && !existingPending.committed && (existingPending.segIdx !== segIdx || existingPending.text !== activeText)) {
+        abortPendingAi();
+      }
+
+      const runFinalOrCommit = () => {
         if (!activeRef.current || thinkingRef.current || pausedForTtsRef.current) return;
         if (!awakeRef.current && !hasWake) return;
 
         const prevAi = lastAiSegRef.current;
-        if (prevAi.segIdx === segIdx && (prevAi.text === displayText || performance.now() - prevAi.time < 1800)) return;
+        if (prevAi.segIdx === segIdx && (prevAi.text === displayText || performance.now() - prevAi.time < 1600)) return;
         lastAiSegRef.current = { segIdx, text: displayText, time: performance.now() };
 
-        const matchedInstant = candidates.find((c) => c.kind)?.text || null;
         if (matchedInstant) {
+          abortPendingAi();
           executeLocal(matchedInstant, segIdx, rawWordCount, performance.now(), hasWake);
           return;
         }
-
-        // Tolak noise ber-confidence sangat rendah atau 1 kata acak tak jelas agar AI tidak salah tangkap suara latar
-        const activeWords = activeText.split(/\s+/).filter(Boolean);
-        if (res.isFinal && primaryConf > 0 && primaryConf < 0.35 && !hasWake) {
-          return;
-        }
-        if (activeWords.length === 1 && !/^(hello|hi|hey|halo|hai|thanks|thank|jarvis|robohand)$/i.test(activeText)) {
-          return;
-        }
+        if (isLowConf || isShortNoise) return;
 
         if (aiActiveRef.current) {
-          askJarvisAi(activeText, altTails.slice(0, 4), segIdx, rawWordCount, hasWake);
+          const cur = aiPendingRef.current;
+          const pending =
+            cur && !cur.committed && cur.segIdx === segIdx && cur.text === activeText
+              ? cur
+              : startAiRequest(activeText, altTails.slice(0, 4), segIdx, rawWordCount, hasWake);
+          commitAi(pending);
         } else {
           executeLocal(activeText, segIdx, rawWordCount, performance.now(), hasWake);
         }
       };
 
       clearTimeout(interimAiTimerRef.current);
+      clearTimeout(aiCommitTimerRef.current);
+
       if (res.isFinal) {
-        dispatchFinalOrDebounced();
+        runFinalOrCommit();
       } else if (awakeRef.current || hasWake) {
-        // Beri jeda yang pas agar user selesai bicara 1 kalimat utuh sebelum dikirim ke Gemini AI
-        const instantProbe = candidates.find((c) => c.kind);
-        const waitMs = instantProbe ? 380 : QUESTION_RE.test(displayText) ? 750 : 880;
-        interimAiTimerRef.current = setTimeout(dispatchFinalOrDebounced, waitMs);
+        if (matchedInstant) {
+          // Sapaan/standby singkat langsung jalan dalam 300ms
+          aiCommitTimerRef.current = setTimeout(runFinalOrCommit, 300);
+        } else if (!isShortNoise && aiActiveRef.current) {
+          // Prefetch spekulatif ke Gemini setelah jeda 260ms (hemat ~0.5-1 detik saat isFinal datang!)
+          const capturedText = activeText;
+          const capturedAlts = altTails.slice(0, 4);
+          const capturedWords = rawWordCount;
+          const capturedWake = hasWake;
+          interimAiTimerRef.current = setTimeout(() => {
+            if (!activeRef.current || thinkingRef.current || pausedForTtsRef.current) return;
+            const cur = aiPendingRef.current;
+            if (cur && !cur.committed && cur.segIdx === segIdx && cur.text === capturedText) return;
+            abortPendingAi();
+            startAiRequest(capturedText, capturedAlts, segIdx, capturedWords, capturedWake);
+          }, 260);
+          // Jika Chrome lambat mengirim isFinal, commit otomatis setelah jeda bicara natural
+          const commitMs = QUESTION_RE.test(displayText) ? 620 : 720;
+          aiCommitTimerRef.current = setTimeout(runFinalOrCommit, commitMs);
+        }
       }
     };
 
@@ -1250,7 +1335,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = setTimeout(() => {
         if (activeRef.current && !pausedForTtsRef.current) startRec();
-      }, 240);
+      }, 90);
     };
 
     try {
@@ -1259,7 +1344,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       setError('Gagal menyalakan mikrofon: ' + (err?.message || err));
       stop(true);
     }
-  }, [askJarvisAi, executeLocal, stop]);
+  }, [abortPendingAi, commitAi, executeLocal, startAiRequest, stop]);
   startRecRef.current = startRec;
 
   const startMeter = useCallback(async () => {
@@ -1357,6 +1442,8 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     setMicName('');
     historyRef.current = [];
     lastAiSegRef.current = { segIdx: -1, text: '', time: 0 };
+    abortPendingAi();
+    aiPendingRef.current = null;
     pausedForTtsRef.current = false;
     lastSpokenRef.current = { text: '', time: 0 };
     netErrCountRef.current = 0;
@@ -1394,7 +1481,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     startRec();
     // Jalankan monitor level mik secara paralel di belakang layar (non-blocking)
     startMeter();
-  }, [supported, startMeter, startRec]);
+  }, [abortPendingAi, supported, startMeter, startRec]);
 
   const toggle = useCallback(() => {
     if (activeRef.current) stop(false);
