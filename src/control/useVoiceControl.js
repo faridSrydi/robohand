@@ -66,6 +66,8 @@ function normalizeTranscript(s) {
     .replace(/\b(skener|skaner|scanners)\b/gi, 'scanner')
     .replace(/\b(twinkel|twinkling)\b/gi, 'twinkle')
     .replace(/\b(tekhnik|tehnik|tehnix|teknic|technique|techniques|technic|technics|technical|tech\s+nick|tek\s+nik|titanic)\b/gi, 'teknik')
+    .replace(/\b(rileks|relaks|rilek|relex)\b/gi, 'relax')
+    .replace(/\b(berhitung|itung|ngitung)\b/gi, 'hitung')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -111,7 +113,7 @@ const FUZZY_VOCAB = [
   'rainbow', 'pelangi', 'meteor', 'breath', 'scanner', 'pemindai', 'twinkle', 'sparkle', 'alternate',
   'brightness', 'kecerahan', 'kecepatan', 'brighter', 'dimmer', 'faster', 'slower',
   'yellow', 'orange', 'purple', 'violet', 'kuning', 'merah', 'hijau', 'putih',
-  'peace', 'teknik', 'kepalan', 'terbuka', 'indonesian', 'english',
+  'peace', 'teknik', 'kepalan', 'terbuka', 'indonesian', 'english', 'demo', 'relax', 'hitung', 'count',
 ];
 
 function fuzzyRepair(text) {
@@ -375,6 +377,44 @@ function parseUiCommand(text, state = null) {
   } else if (/\b(english|bahasa inggris|switch to english)\b/i.test(text)) {
     ui.lang = 'en';
     labels.push('Language EN');
+  }
+
+  // Mode Auto Demo (berganti pose 0-5, peace, middle, teknik & LED otomatis secara halus)
+  if (/\b(demo|showcase)\b/i.test(text)) {
+    if (/\b(stop|off|end|cancel|exit|close|berhenti|hentikan|matikan|tutup)\b/i.test(text)) {
+      ui.demo = 'stop';
+      labels.push('Demo stopped');
+    } else {
+      ui.demo = 'start';
+      labels.push('Demo started');
+    }
+  }
+
+  // Relax servo (lepas torsi supaya dingin & hemat baterai)
+  if (/\b(relax|release\s*servos?|detach\s*servos?|lepas\s*servo|kendur\w*\s*servo|istirahatkan\s*servo)\b/i.test(text)) {
+    if (/\b(stop|off|cancel|wake|unrelax|matikan|batal)\b/i.test(text)) {
+      ui.relax = false;
+      labels.push('Servos active');
+    } else {
+      ui.relax = true;
+      labels.push('Servos relaxed');
+    }
+  } else if (/\b(wake\s*servos?|enable\s*servos?|aktifkan\s*servo)\b/i.test(text)) {
+    ui.relax = false;
+    labels.push('Servos active');
+  }
+
+  // Perintah hitung berurutan 1-3 / 1-5 + bunyi buzzer saat selesai
+  const countMatch = text.match(
+    /\b(?:count|hitung)\s+(?:from\s+|dari\s+)?(?:(?:1|one|satu)\s*(?:to|until|sampai|hingga|-)?\s*)?(?:to\s+|sampai\s+|hingga\s+)?(2|3|4|5|two|three|four|five|dua|tiga|empat|lima)\b/i
+  );
+  if (countMatch) {
+    const mapN = { '2': 2, two: 2, dua: 2, '3': 3, three: 3, tiga: 3, '4': 4, four: 4, empat: 4, '5': 5, five: 5, lima: 5 };
+    const n = mapN[countMatch[1].toLowerCase()];
+    if (n) {
+      ui.countTo = n;
+      labels.push(`Count 1–${n}`);
+    }
   }
 
   if (/\b(camera|webcam|kamera)\b/i.test(text)) {

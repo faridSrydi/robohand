@@ -76,6 +76,9 @@ DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly
   * "fingerSpeed": integer 30..360 (ONLY when user asks to adjust finger/servo speed)
   * "smooth": integer 5..100 (ONLY when user asks to adjust smoothing)
   * "binary": boolean (ONLY when user asks to toggle binary/analog mode)
+  * "demo": "start" or "stop" (ONLY when user asks to start/stop auto demo mode)
+  * "relax": boolean (true to relax/release/detach servos, false to wake/enable servos)
+  * "countTo": integer 2..5 (ONLY when user asks to count sequentially e.g. "count 1 to 3", "count to 5", "hitung 1 sampai 5")
 - "sleep": true ONLY if the user tells you to standby, sleep, or rest.
 - "label": 2-3 short English words for the status badge (use "Out of scope" when refusing off-topic questions).
 Return ONLY valid JSON.`;
@@ -120,6 +123,9 @@ const JARVIS_SCHEMA = {
         fingerSpeed: { type: 'INTEGER', nullable: true },
         smooth: { type: 'INTEGER', nullable: true },
         binary: { type: 'BOOLEAN', nullable: true },
+        demo: { type: 'STRING', nullable: true },
+        relax: { type: 'BOOLEAN', nullable: true },
+        countTo: { type: 'INTEGER', nullable: true },
       },
     },
   },
@@ -288,6 +294,15 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null, la
       }
       if (typeof parsed.ui.binary === 'boolean' && /\b(binary|biner|analog|proportional)\b/i.test(q)) {
         u.binary = parsed.ui.binary;
+      }
+      if ((parsed.ui.demo === 'start' || parsed.ui.demo === 'stop') && /\b(demo|showcase|otomatis|auto)\b/i.test(q)) {
+        u.demo = parsed.ui.demo;
+      }
+      if (typeof parsed.ui.relax === 'boolean' && /\b(relax|release|detach|lepas|kendur|istirahat|wake|aktifkan)\b/i.test(q)) {
+        u.relax = parsed.ui.relax;
+      }
+      if (typeof parsed.ui.countTo === 'number' && /\b(count|hitung|berhitung)\b/i.test(q)) {
+        u.countTo = Math.max(2, Math.min(5, Math.round(parsed.ui.countTo)));
       }
       if (Object.keys(u).length > 0) cleanUi = u;
     }
@@ -650,7 +665,7 @@ const boards = new WebSocketServer({ noServer: true });   // ESP32 lewat WiFi
 const TARGET_FORMAT = /^\d{1,3}(,\d{1,3}){4}$/;
 const NUM = '\\d+(\\.\\d+)?';
 const CMD_FORMAT = new RegExp(
-  `^(A,[1-4],${NUM},${NUM}|W,[1-4],${NUM}|V,\\d{2,3}|G` +
+  `^(A,[1-4],${NUM},${NUM}|W,[1-4],${NUM}|V,\\d{2,3}|G|R,[01]|B(,[12])?` +
   `|C,\\d{3,4},\\d{2,3},-?1,\\d{3,5},\\d{3,5}|U,\\d{3,4}|Z,\\d{1,3}(\\.\\d+)?` +
   `|L(,\\d{1,3}){6,8})$`
 );
@@ -658,6 +673,7 @@ const CMD_FORMAT = new RegExp(
 let mode = 'wifi';          // 'wifi' | 'serial'
 let lastTarget = '0,0,0,0,0';
 let lastCfg = null;
+let lastHealth = null;
 let port = null, portPath = '', serialBuf = '', gotCfg = false, keepAlive = null;
 
 const toBoards = (msg) => boards.clients.forEach((c) => c.readyState === 1 && c.send(msg));
@@ -679,7 +695,8 @@ function fromEsp(msg, via) {
   try {
     const m = JSON.parse(msg);
     if (m.type === 'cfg') { lastCfg = msg; if (via === 'serial') gotCfg = true; }
-    if (m.type === 'cfg' || m.type === 'pos') toBrowsers(msg);
+    if (m.type === 'health') lastHealth = msg;
+    if (m.type === 'cfg' || m.type === 'pos' || m.type === 'health') toBrowsers(msg);
   } catch { }
 }
 
@@ -730,7 +747,8 @@ function openPort(p0) {
 }
 
 async function handleControl(ws, m) {
-  if (m.type === 'ports') ws.send(JSON.stringify({ type: 'ports', ports: await listPorts() }));
+  if (m.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: m.t }));
+  else if (m.type === 'ports') ws.send(JSON.stringify({ type: 'ports', ports: await listPorts() }));
   else if (m.type === 'mode' && (m.mode === 'wifi' || m.mode === 'serial')) {
     mode = m.mode;
     if (mode === 'wifi') closePort();
@@ -758,6 +776,7 @@ server.on('upgrade', (req, socket, head) => {
 browsers.on('connection', (ws) => {
   ws.send(status());
   if (lastCfg) ws.send(lastCfg);
+  if (lastHealth) ws.send(lastHealth);
   ws.on('message', (data) => {
     const msg = data.toString();
     if (msg[0] === '{') { try { handleControl(ws, JSON.parse(msg)); } catch { } }

@@ -683,8 +683,9 @@ float target[5] = {0, 0, 0, 0, 0};  // target 0-100 dari hand tracking
 bool hold[5] = {false, false, false, false, false};  // true = tahan sudut preview (kalibrasi) sampai ada target baru
 int lastUs[5] = {-1, -1, -1, -1, -1};
 float speedDps = 120.0f;            // derajat per detik (4 jari), >= 360 berarti tanpa batas
-unsigned long lastMotor = 0, lastPosSent = 0;
+unsigned long lastMotor = 0, lastPosSent = 0, lastHealthSent = 0;
 bool posDirty = false;
+bool servosRelaxed = false;
 
 // Kabel USB (Serial): perintah sama dengan WiFi, satu baris per perintah.
 // ESP32 hanya kirim JSON balik lewat kabel kalau baru menerima perintah dari kabel (<3 detik).
@@ -754,6 +755,56 @@ void sendPos() {
   emit(j);
 }
 
+void sendHealth() {
+  int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  uint32_t ledMa = ledRawMa[0] + ledRawMa[1] + 2 * LED_COUNT * LED_IDLE_MA;
+  if (ledMa > (uint32_t)LED_BUDGET_MA) ledMa = LED_BUDGET_MA;
+  String j = "{\"type\":\"health\",\"rssi\":" + String(rssi) +
+             ",\"uptime\":" + String(millis() / 1000UL) +
+             ",\"heap\":" + String(ESP.getFreeHeap()) +
+             ",\"ledMa\":" + String(ledMa) +
+             ",\"relaxed\":" + (servosRelaxed ? "true" : "false") +
+             ",\"ip\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("")) + "\"}";
+  emit(j);
+}
+
+void setServosRelaxed(bool relax) {
+  if (relax == servosRelaxed) { sendHealth(); return; }
+  if (relax) {
+    for (int i = 0; i < 5; i++) {
+      if (servos[i].attached()) servos[i].detach();
+      lastUs[i] = -1;
+    }
+    servosRelaxed = true;
+  } else {
+    servos[0].setPeriodHertz(50);
+    servos[0].attach(SERVO_PINS[0], 500, 2500);
+    servos[0].writeMicroseconds(thumb.neutral);
+    lastUs[0] = thumb.neutral;
+    for (int i = 1; i < 5; i++) {
+      servos[i].setPeriodHertz(50);
+      int us = 500 + (int)(cur[i] / 180.0f * 2000.0f + 0.5f);
+      servos[i].writeMicroseconds(us);
+      servos[i].attach(SERVO_PINS[i], 500, 2500);
+      servos[i].writeMicroseconds(us);
+      lastUs[i] = us;
+    }
+    servosRelaxed = false;
+    lastMotor = millis();
+  }
+  sendHealth();
+}
+
+void playDoneBeep(int kind) {
+  if (kind == 1) {
+    buzzNote(1568, 90);
+  } else {
+    buzzNote(1319, 80); buzzNote(0, 45);
+    buzzNote(1760, 170);
+  }
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
 // Perintah:
 //  "A,i,buka,tutup" simpan sudut buka dan tutup servo i (1-4) | "W,i,sudut" gerakkan ke sudut (kalibrasi, belum disimpan)
 //  "V,speed" kecepatan 4 jari (derajat/detik, 360 = maks) | "G" kirim config | "p,p,p,p,p" target 0-100
@@ -773,6 +824,7 @@ void handleCommand(const char* s) {
     if (!hold[i]) goalA[i] = angleFor(i, target[i]);
     sendCfg();
   } else if (s[0] == 'W' && sscanf(s, "W,%d,%f", &i, &a) == 2 && i >= 1 && i < 5) {
+    if (servosRelaxed) setServosRelaxed(false);
     goalA[i] = constrain(a, 0.0f, 180.0f);
     hold[i] = true;
   } else if (s[0] == 'V' && sscanf(s, "V,%f", &a) == 1) {
@@ -793,10 +845,19 @@ void handleCommand(const char* s) {
   } else if (s[0] == 'U') {
     int us;
     if (sscanf(s, "U,%d", &us) == 1) {
+      if (servosRelaxed) setServosRelaxed(false);
       thumbHoldUs = constrain(us, 1000, 2000);
       thumbHoldAt = millis();
       hold[0] = true;
     }
+  } else if (s[0] == 'R') {
+    int rVal = 1;
+    sscanf(s, "R,%d", &rVal);
+    setServosRelaxed(rVal != 0);
+  } else if (s[0] == 'B') {
+    int bKind = 2;
+    sscanf(s, "B,%d", &bKind);
+    playDoneBeep(bKind);
   } else if (s[0] == 'L') {
     int v[8];
     int n = sscanf(s, "L,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]);
@@ -811,10 +872,11 @@ void handleCommand(const char* s) {
       posDirty = true;
     }
   } else if (strcmp(s, "G") == 0) {
-    sendCfg(); posDirty = true;
+    sendCfg(); sendHealth(); posDirty = true;
   } else {
     int t[5];
     if (sscanf(s, "%d,%d,%d,%d,%d", &t[0], &t[1], &t[2], &t[3], &t[4]) == 5) {
+      if (servosRelaxed) setServosRelaxed(false);
       for (int k = 0; k < 5; k++) {
         target[k] = constrain(t[k], 0, 100);
         hold[k] = false;
@@ -853,31 +915,37 @@ void motorUpdate() {
   float dt = (now - lastMotor) / 1000.0f;
   lastMotor = now;
   if (dt > 0.1f) dt = 0.1f;
-  float maxStep = speedDps * dt;
-  bool instant = speedDps >= 360.0f;
 
-  // Jempol (servo kontinu)
-  float posBefore = cur[0];
-  int tus = thumbUpdate(dt, now);
-  if (tus != lastUs[0]) { servos[0].writeMicroseconds(tus); lastUs[0] = tus; }
-  if (fabsf(cur[0] - posBefore) > 0.0001f) posDirty = true;
-  // Simpan posisi jempol ke memori setelah berhenti bergerak 1,5 detik (supaya tetap benar setelah ESP32 mati)
-  if (thumbPosUnsaved && lastUs[0] == thumb.neutral && now - thumbMovedAt > 1500) {
-    prefs.putFloat("tpos", thumbPos);
-    thumbPosUnsaved = false;
-  }
+  if (!servosRelaxed) {
+    float maxStep = speedDps * dt;
+    bool instant = speedDps >= 360.0f;
 
-  // 4 jari (servo 180°)
-  for (int i = 1; i < 5; i++) {
-    float d = goalA[i] - cur[i];
-    if (instant || fabsf(d) <= maxStep) cur[i] = goalA[i];
-    else cur[i] += d > 0 ? maxStep : -maxStep;
-    int us = 500 + (int)(cur[i] / 180.0f * 2000.0f + 0.5f);
-    if (us != lastUs[i]) { servos[i].writeMicroseconds(us); lastUs[i] = us; posDirty = true; }
+    // Jempol (servo kontinu)
+    float posBefore = cur[0];
+    int tus = thumbUpdate(dt, now);
+    if (tus != lastUs[0]) { servos[0].writeMicroseconds(tus); lastUs[0] = tus; }
+    if (fabsf(cur[0] - posBefore) > 0.0001f) posDirty = true;
+    // Simpan posisi jempol ke memori setelah berhenti bergerak 1,5 detik (supaya tetap benar setelah ESP32 mati)
+    if (thumbPosUnsaved && lastUs[0] == thumb.neutral && now - thumbMovedAt > 1500) {
+      prefs.putFloat("tpos", thumbPos);
+      thumbPosUnsaved = false;
+    }
+
+    // 4 jari (servo 180°)
+    for (int i = 1; i < 5; i++) {
+      float d = goalA[i] - cur[i];
+      if (instant || fabsf(d) <= maxStep) cur[i] = goalA[i];
+      else cur[i] += d > 0 ? maxStep : -maxStep;
+      int us = 500 + (int)(cur[i] / 180.0f * 2000.0f + 0.5f);
+      if (us != lastUs[i]) { servos[i].writeMicroseconds(us); lastUs[i] = us; posDirty = true; }
+    }
   }
 
   if (posDirty && (ws.isConnected() || serialActive()) && now - lastPosSent > 250) {
     sendPos(); posDirty = false; lastPosSent = now;
+  }
+  if ((ws.isConnected() || serialActive()) && now - lastHealthSent >= 2500) {
+    sendHealth(); lastHealthSent = now;
   }
 }
 
@@ -903,7 +971,7 @@ void onEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
       Serial.println("WebSocket tersambung");
-      sendCfg(); posDirty = true;
+      sendCfg(); sendHealth(); posDirty = true;
       break;
     case WStype_DISCONNECTED:
       Serial.println("WebSocket putus, mencoba lagi...");

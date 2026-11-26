@@ -15,6 +15,8 @@ export function useRobotSocket({ enabled = true } = {}) {
   const [ports, setPorts] = useState([]);
   const [cfg, setCfg] = useState(null);
   const [pos, setPos] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [pingMs, setPingMs] = useState(null);
   const [error, setError] = useState('');
   const wsRef = useRef(null);
 
@@ -24,10 +26,13 @@ export function useRobotSocket({ enabled = true } = {}) {
       wsRef.current = null;
       setConnected(false);
       setStatus(EMPTY_STATUS);
+      setHealth(null);
+      setPingMs(null);
       return undefined;
     }
     let alive = true;
     let timer = null;
+    let pingTimer = null;
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -40,16 +45,27 @@ export function useRobotSocket({ enabled = true } = {}) {
       }
       wsRef.current = ws;
 
+      const sendPing = () => {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'ping', t: Date.now() }));
+        }
+      };
+
       ws.onopen = () => {
         if (!alive) return;
         setConnected(true);
         setError('');
         ws.send('G');
+        sendPing();
+        clearInterval(pingTimer);
+        pingTimer = setInterval(sendPing, 3000);
       };
       ws.onclose = () => {
         if (!alive) return;
+        clearInterval(pingTimer);
         setConnected(false);
         setStatus(EMPTY_STATUS);
+        setPingMs(null);
         timer = setTimeout(connect, 2500);
       };
       ws.onerror = () => ws.close();
@@ -65,6 +81,10 @@ export function useRobotSocket({ enabled = true } = {}) {
           case 'ports': setPorts(m.ports || []); break;
           case 'cfg': setCfg(m); break;
           case 'pos': setPos(m.p); break;
+          case 'health': setHealth(m); break;
+          case 'pong':
+            if (typeof m.t === 'number') setPingMs(Math.max(1, Date.now() - m.t));
+            break;
           case 'error': setError(m.msg); break;
           default: break;
         }
@@ -75,6 +95,7 @@ export function useRobotSocket({ enabled = true } = {}) {
     return () => {
       alive = false;
       clearTimeout(timer);
+      clearInterval(pingTimer);
       wsRef.current?.close();
     };
   }, [enabled]);
@@ -86,5 +107,5 @@ export function useRobotSocket({ enabled = true } = {}) {
 
   const sendJson = useCallback((obj) => send(JSON.stringify(obj)), [send]);
 
-  return { connected, status, ports, cfg, pos, error, send, sendJson };
+  return { connected, status, ports, cfg, pos, health, pingMs, error, send, sendJson };
 }

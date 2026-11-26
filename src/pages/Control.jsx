@@ -72,6 +72,40 @@ function loadCal() {
   return structuredClone(DEFAULT_CAL);
 }
 
+// Urutan: [Jempol, Telunjuk, Tengah, Manis, Kelingking] (0 = buka, 100 = tutup)
+const COUNT_POSES = [
+  [100, 100, 100, 100, 100], // 0: kepal
+  [100, 0, 100, 100, 100],   // 1: telunjuk
+  [100, 0, 0, 100, 100],     // 2: telunjuk + tengah
+  [100, 0, 0, 0, 100],       // 3: telunjuk + tengah + manis
+  [100, 0, 0, 0, 0],         // 4: 4 jari tanpa jempol
+  [0, 0, 0, 0, 0],           // 5: semua terbuka
+];
+const countPose = (n) => COUNT_POSES[Math.max(0, Math.min(5, n))];
+
+// Urutan Mode Demo otomatis: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> Peace -> Tengah -> Teknik -> ulang terus
+// Tiap langkah juga mengganti animasi/warna LED secara halus & serasi.
+const DEMO_STEPS = [
+  { pose: COUNT_POSES[0], preset: false, led: { strip: 0, mode: 0, r: 255, g: 170, b: 30, speed: 45, rgb: false } },
+  { pose: COUNT_POSES[1], preset: false, led: { strip: 0, mode: 1, r: 0, g: 229, b: 255, speed: 45, rgb: false } },
+  { pose: COUNT_POSES[2], preset: false, led: { strip: 0, mode: 8, r: 43, g: 127, b: 255, speed: 45, rgb: false } },
+  { pose: COUNT_POSES[3], preset: false, led: { strip: 0, mode: 3, speed: 45, rgb: false } },
+  { pose: COUNT_POSES[4], preset: false, led: { strip: 0, mode: 2, r: 34, g: 197, b: 94, speed: 40, rgb: false } },
+  { pose: COUNT_POSES[5], preset: false, led: { strip: 0, mode: 6, r: 168, g: 85, b: 247, speed: 45, rgb: false } },
+  { pose: [100, 0, 0, 100, 100], preset: true, led: { strip: 0, mode: 5, r: 255, g: 79, b: 163, speed: 45, rgb: false } },
+  { pose: [100, 100, 0, 100, 100], preset: true, led: { strip: 0, mode: 7, speed: 45, rgb: false } },
+  { pose: [0, 0, 100, 100, 0], preset: true, led: { strip: 0, mode: 9, speed: 45, rgb: true } },
+];
+
+function formatUptime(sec) {
+  if (typeof sec !== 'number' || sec < 0) return '--:--';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const pad2 = (v) => String(v).padStart(2, '0');
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+}
+
 // Rasio jarak landmark. Kecil = menekuk, besar = lurus.
 function ratios(lm, W, H) {
   const dist = (p, q) =>
@@ -87,7 +121,7 @@ export default function Control() {
   const auth = useAuth();
   const canControl = !auth.loginEnabled || auth.authenticated;
   const socket = useRobotSocket({ enabled: canControl });
-  const { connected, status, ports, cfg, pos, error, send, sendJson } = socket;
+  const { connected, status, ports, cfg, pos, health, pingMs, error, send, sendJson } = socket;
 
   const [cal, setCal] = useState(loadCal);
   const [servoLimits, setServoLimits] = useState(loadServoLimits);
@@ -103,12 +137,22 @@ export default function Control() {
   const [wizIndex, setWizIndex] = useState(null);
   const [camSettingsOpen, setCamSettingsOpen] = useState(false);
   const [servoOpen, setServoOpen] = useState(false);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [countingTo, setCountingTo] = useState(0); // 0 = idle, 2..5 = sedang menghitung 1..n
+  const [relaxed, setRelaxed] = useState(false);
   const [ledStudioOpen, setLedStudioOpen] = useState(false);
   const ledStudioOpenRef = useRef(false);
   ledStudioOpenRef.current = ledStudioOpen;
   const [ledStripTarget, setLedStripTarget] = useState(0); // 0 = both, 1 = strip 1, 2 = strip 2
   const ledStripTargetRef = useRef(0);
   ledStripTargetRef.current = ledStripTarget;
+  const demoTimerRef = useRef(null);
+  const demoIdxRef = useRef(0);
+  const countTimersRef = useRef([]);
+  const savedSpeedRef = useRef(null);
+  const speedRef = useRef(120);
+  speedRef.current = speed;
   const [panelClosed, setPanelClosed] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches
   );
@@ -260,11 +304,54 @@ export default function Control() {
   const onSlider = (i, v) => {
     const next = [...anglesRef.current];
     next[i] = v;
+    stopDemo();
+    stopCount();
+    setRelaxed(false);
     setAllAngles(next, true);
   };
 
+  // Sinkronkan status relax servo dari telemetri health ESP32
+  useEffect(() => {
+    if (health && typeof health.relaxed === 'boolean') {
+      setRelaxed(health.relaxed);
+    }
+  }, [health]);
+
+  const restoreSmoothSpeed = useCallback(() => {
+    if (savedSpeedRef.current != null) {
+      const prevSp = savedSpeedRef.current;
+      savedSpeedRef.current = null;
+      send(`V,${prevSp}`);
+    }
+  }, [send]);
+
+  const stopCount = useCallback(
+    (restoreSp = true) => {
+      countTimersRef.current.forEach((id) => clearTimeout(id));
+      countTimersRef.current = [];
+      setCountingTo(0);
+      if (restoreSp) restoreSmoothSpeed();
+    },
+    [restoreSmoothSpeed]
+  );
+
+  const stopDemo = useCallback(
+    (restoreSp = true) => {
+      clearTimeout(demoTimerRef.current);
+      demoTimerRef.current = null;
+      setDemoRunning(false);
+      if (restoreSp) restoreSmoothSpeed();
+    },
+    [restoreSmoothSpeed]
+  );
+
   // Shortcut gerakan servo (bisa dipakai langsung meski kamera mati; jika tracking aktif, otomatis pindah ke manual).
-  const applyShortcut = (pose, isPreset = false) => {
+  const applyShortcut = (pose, isPreset = false, { fromAuto = false } = {}) => {
+    if (!fromAuto) {
+      stopDemo();
+      stopCount();
+    }
+    setRelaxed(false);
     if (camState === 'on' && modeRef.current === 'track') {
       setMode('manual');
       modeRef.current = 'manual';
@@ -275,18 +362,8 @@ export default function Control() {
     if (isPreset) sfx.pattern();
     else sfx.click();
   };
-
-  // Urutan: [Jempol, Telunjuk, Tengah, Manis, Kelingking] (0 = buka, 100 = tutup)
-  // 1: telunjuk | 2: telunjuk+tengah | 3: telunjuk+tengah+manis | 4: 4 jari tanpa jempol | 5: semua terbuka
-  const COUNT_POSES = [
-    [100, 100, 100, 100, 100],
-    [100, 0, 100, 100, 100],
-    [100, 0, 0, 100, 100],
-    [100, 0, 0, 0, 100],
-    [100, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0],
-  ];
-  const countPose = (n) => COUNT_POSES[Math.max(0, Math.min(5, n))];
+  const applyShortcutRef = useRef(applyShortcut);
+  applyShortcutRef.current = applyShortcut;
 
   const applyVoiceLed = useCallback(
     (patch, ensureOn = false) => {
@@ -343,6 +420,97 @@ export default function Control() {
     },
     [send]
   );
+
+  // Mode Auto Demo: 0-5 -> Peace -> Tengah -> Teknik + ganti animasi LED otomatis (smooth & tidak terlalu cepat)
+  const startDemo = useCallback(() => {
+    stopCount(false);
+    clearTimeout(demoTimerRef.current);
+    setRelaxed(false);
+    if (modeRef.current !== 'manual') {
+      setMode('manual');
+      modeRef.current = 'manual';
+    }
+    // Batasi kecepatan servo ke 90°/dtk selama demo agar gerakan halus, lembut, dan tidak menghentak
+    if (savedSpeedRef.current == null && speedRef.current > 95) {
+      savedSpeedRef.current = speedRef.current;
+      send('V,90');
+    }
+    setDemoRunning(true);
+    demoIdxRef.current = 0;
+
+    const runStep = () => {
+      const step = DEMO_STEPS[demoIdxRef.current % DEMO_STEPS.length];
+      demoIdxRef.current = (demoIdxRef.current + 1) % DEMO_STEPS.length;
+      applyShortcutRef.current(step.pose, step.preset, { fromAuto: true });
+      applyVoiceLed(step.led, true);
+      demoTimerRef.current = setTimeout(runStep, 2150);
+    };
+    runStep();
+  }, [applyVoiceLed, send, stopCount]);
+
+  // Hitung berurutan 1 -> n (mis. 1-3 atau 1-5) secara halus lalu bunyikan buzzer ESP32 saat selesai
+  const startCount = useCallback(
+    (maxN) => {
+      const targetN = Math.max(2, Math.min(5, Math.round(maxN)));
+      stopDemo(false);
+      stopCount(false);
+      setRelaxed(false);
+      if (modeRef.current !== 'manual') {
+        setMode('manual');
+        modeRef.current = 'manual';
+      }
+      if (savedSpeedRef.current == null && speedRef.current > 105) {
+        savedSpeedRef.current = speedRef.current;
+        send('V,95');
+      }
+      setCountingTo(targetN);
+
+      const STEP_MS = 1350;
+      const timers = [];
+      for (let k = 1; k <= targetN; k += 1) {
+        timers.push(
+          setTimeout(() => {
+            applyShortcutRef.current(countPose(k), false, { fromAuto: true });
+          }, (k - 1) * STEP_MS)
+        );
+      }
+      // Selesai menghitung -> bunyikan buzzer ESP32 & pulihkan kecepatan semula
+      timers.push(
+        setTimeout(() => {
+          send('B,2');
+          sfx.pattern();
+          setCountingTo(0);
+          countTimersRef.current = [];
+          restoreSmoothSpeed();
+        }, (targetN - 1) * STEP_MS + 1150)
+      );
+      countTimersRef.current = timers;
+    },
+    [restoreSmoothSpeed, send, stopCount, stopDemo]
+  );
+
+  // Relax servo (R,1 = lepas torsi/detach agar dingin & hemat baterai; R,0 = aktifkan lagi)
+  const setRelaxState = useCallback(
+    (nextRelax) => {
+      if (nextRelax) {
+        stopDemo();
+        stopCount();
+        if (modeRef.current !== 'manual') {
+          setMode('manual');
+          modeRef.current = 'manual';
+        }
+      }
+      setRelaxed(nextRelax);
+      sfx.toggle(!nextRelax);
+      send(nextRelax ? 'R,1' : 'R,0');
+    },
+    [send, stopCount, stopDemo]
+  );
+
+  useEffect(() => () => {
+    clearTimeout(demoTimerRef.current);
+    countTimersRef.current.forEach((id) => clearTimeout(id));
+  }, []);
 
   const applyVoiceUi = (ui) => {
     if (!ui || typeof ui !== 'object') return;
@@ -433,6 +601,20 @@ export default function Control() {
     if (typeof ui.camBright === 'number') {
       setAutoBright(false);
       setManualBright(Math.max(100, Math.min(500, Math.round(ui.camBright))));
+    }
+
+    if (ui.demo === 'start') {
+      startDemo();
+    } else if (ui.demo === 'stop') {
+      stopDemo();
+    }
+
+    if (typeof ui.relax === 'boolean') {
+      setRelaxState(ui.relax);
+    }
+
+    if (typeof ui.countTo === 'number') {
+      startCount(ui.countTo);
     }
   };
 
@@ -534,11 +716,33 @@ export default function Control() {
   }, [usb, ports, portChoice]);
 
   const handleLogout = async () => {
+    stopDemo();
+    stopCount();
     try { stop(); } catch {}
     try { voice.stop(); } catch {}
     setLedStudioOpen(false);
     await auth.logout();
   };
+
+  const rssiVal = health?.rssi;
+  const wifiQuality = !espOn
+    ? c.healthOffline
+    : usb
+      ? c.healthUsb
+      : !rssiVal
+        ? '--'
+        : rssiVal >= -60
+          ? c.sigStrong
+          : rssiVal >= -72
+            ? c.sigGood
+            : rssiVal >= -82
+              ? c.sigFair
+              : c.sigWeak;
+  const ledMaVal = espOn && typeof health?.ledMa === 'number' ? health.ledMa : null;
+  const ledPct = ledMaVal != null ? Math.min(100, Math.round((ledMaVal / 3000) * 100)) : 0;
+  const healthSummary = !connected
+    ? c.healthOffline
+    : `${pingMs != null ? `${pingMs} ms` : '--'}${espOn && !usb && rssiVal ? ` · ${rssiVal} dBm` : ''}`;
 
   const locked = auth.loginEnabled && !auth.authenticated;
 
@@ -756,9 +960,114 @@ export default function Control() {
             {error && <p className="ctl-note" style={{ color: '#d9534f' }}>{error}</p>}
 
             <div className="segmented" role="group" aria-label={c.modeAria}>
-              <button type="button" aria-pressed={mode === 'track'} onClick={() => setMode('track')}>{c.handTracking}</button>
+              <button
+                type="button"
+                aria-pressed={mode === 'track'}
+                onClick={() => { stopDemo(); stopCount(); setRelaxed(false); setMode('track'); }}
+              >
+                {c.handTracking}
+              </button>
               <button type="button" aria-pressed={mode === 'manual'} onClick={() => setMode('manual')}>{c.manual}</button>
             </div>
+
+            <div className="ctl-quick-tools" role="group" aria-label={c.quickToolsAria}>
+              <button
+                type="button"
+                className={`ctl-tool-btn ${demoRunning ? 'is-active' : ''}`}
+                aria-pressed={demoRunning}
+                onClick={() => (demoRunning ? stopDemo() : startDemo())}
+                title={c.demoTitle}
+              >
+                <span className="ctl-tool-dot" aria-hidden="true" />
+                {demoRunning ? c.demoStop : c.demoStart}
+              </button>
+              <button
+                type="button"
+                className={`ctl-tool-btn ${relaxed ? 'is-warn' : ''}`}
+                aria-pressed={relaxed}
+                onClick={() => setRelaxState(!relaxed)}
+                title={c.relaxTitle}
+              >
+                {relaxed ? c.relaxedBtn : c.relaxBtn}
+              </button>
+              <button
+                type="button"
+                className={`ctl-tool-btn ctl-tool-num ${countingTo === 3 ? 'is-active' : ''}`}
+                aria-pressed={countingTo === 3}
+                onClick={() => (countingTo === 3 ? stopCount() : startCount(3))}
+                title={c.countTitle(3)}
+              >
+                {c.count13}
+              </button>
+              <button
+                type="button"
+                className={`ctl-tool-btn ctl-tool-num ${countingTo === 5 ? 'is-active' : ''}`}
+                aria-pressed={countingTo === 5}
+                onClick={() => (countingTo === 5 ? stopCount() : startCount(5))}
+                title={c.countTitle(5)}
+              >
+                {c.count15}
+              </button>
+            </div>
+
+            <section className={`led-box ${healthOpen ? 'is-open' : ''}`} aria-label={c.healthSection}>
+              <button
+                type="button"
+                className="led-toggle"
+                aria-expanded={healthOpen}
+                aria-controls="health-mon-body"
+                onClick={() => setHealthOpen((v) => !v)}
+              >
+                <span className="led-toggle-left">
+                  <span className={`health-dot ${espOn ? 'is-on' : ''}`} aria-hidden="true" />
+                  <span className="led-toggle-title">{c.healthSection}</span>
+                </span>
+                <span className="health-summary-wrap">
+                  <span className="health-summary">{healthSummary}</span>
+                  <span className="led-chevron" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                </span>
+              </button>
+
+              <div id="health-mon-body" className="led-collapse" aria-hidden={!healthOpen}>
+                <div className="led-collapse-inner">
+                  <div className="health-grid">
+                    <div className="health-card">
+                      <span className="health-k">{c.healthPing}</span>
+                      <strong className="health-v">{connected && pingMs != null ? `${pingMs} ms` : '--'}</strong>
+                    </div>
+                    <div className="health-card">
+                      <span className="health-k">{c.healthWifi}</span>
+                      <strong className="health-v">
+                        {espOn && !usb && rssiVal ? `${rssiVal} dBm` : wifiQuality}
+                      </strong>
+                      {espOn && !usb && rssiVal ? <small className="health-sub">{wifiQuality}</small> : null}
+                    </div>
+                    <div className="health-card">
+                      <span className="health-k">{c.healthLed}</span>
+                      <strong className="health-v">{ledMaVal != null ? `${ledMaVal} mA` : '--'}</strong>
+                      <span className="health-bar" aria-hidden="true">
+                        <i style={{ width: `${ledPct}%` }} />
+                      </span>
+                    </div>
+                    <div className="health-card">
+                      <span className="health-k">{c.healthServo}</span>
+                      <strong className={`health-v ${relaxed ? 'is-warn' : ''}`}>
+                        {!espOn ? c.healthOffline : relaxed ? c.healthRelaxed : c.healthActive}
+                      </strong>
+                      <small className="health-sub">
+                        {espOn && health
+                          ? `${formatUptime(health.uptime)} · ${Math.round((health.heap || 0) / 1024)} KB`
+                          : '--'}
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <section className={`led-box ${camSettingsOpen ? 'is-open' : ''}`} aria-label={c.camSection}>
               <button
