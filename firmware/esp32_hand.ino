@@ -47,7 +47,7 @@ const char* HOSTNAME = "handrobot";          // -> http://handrobot.local
 const char* DEFAULT_SERVER = "robotic-hand.my.id:3000";
 const int   RESET_PIN = 0;                   // tombol BOOT
 // Urutan: jempol (kontinu 360°), telunjuk, tengah, manis, kelingking (180°)
-const int SERVO_PINS[5] = {13, 14, 25, 26, 27};
+const int SERVO_PINS[5] = {13, 14, 26, 27, 25};
 
 // LED strip WS2812B (data lewat resistor 220 ohm)
 const int LED_PIN1 = 22;
@@ -612,6 +612,36 @@ void ledTick() {
   if (ledSaveDirty && now - ledSaveAt > 1500) { saveLed(); ledSaveDirty = false; }
 }
 
+// Animasi pembuka: 1 kali sapuan meteor RGB di kedua strip sampai ekornya memudar habis
+void bootLedMeteorRgb() {
+  const int N = LED_COUNT;
+  const int totalSteps = N + 18;
+  bclear(0); bclear(1);
+  for (int step = 0; step < totalSteps; step++) {
+    for (int s = 0; s < 2; s++) {
+      bfade(s, 185);
+      for (int j = 0; j < 3; j++) {
+        int idx = step - j;
+        if (idx >= 0 && idx < N) {
+          uint32_t c = Adafruit_NeoPixel::ColorHSV((uint16_t)(step * 1400 + idx * (65536 / N)), 255, 255);
+          bset(s, idx, (c >> 16) & 255, (c >> 8) & 255, c & 255);
+        }
+      }
+      Adafruit_NeoPixel& strip = *strips[s];
+      strip.setBrightness(135);
+      for (int i = 0; i < N; i++) {
+        int k = (s == 1 && STRIP2_REVERSED) ? (N - 1 - i) : i;
+        strip.setPixelColor(i, ledBuf[s][k][0], ledBuf[s][k][1], ledBuf[s][k][2]);
+      }
+      strip.show();
+    }
+    delay(24);
+  }
+  // Bersihkan LED sebelum gerakan jari & masuk ke setelan tersimpan
+  bclear(0); bclear(1);
+  for (int s = 0; s < 2; s++) { strips[s]->clear(); strips[s]->show(); }
+}
+
 // Perintah L dari web. target: 0 = kedua strip (dibuat sama + sinkron), 1 = strip 1, 2 = strip 2
 void ledSet(int target, int m, int r, int g, int b, int br, int sp, int rgb) {
   LedCfg c = {constrain(m, 0, LED_MODES - 1), constrain(r, 0, 255), constrain(g, 0, 255), constrain(b, 0, 255),
@@ -885,6 +915,124 @@ void onEvent(WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
+// Gerakan pembuka jari: gelombang pelan, halus, dan smooth (kurva cosine 100 Hz) dari telunjuk ke kelingking,
+// lalu berakhir di posisi terbuka penuh. Maks tekukan 60% bergantian agar lembut, ringan arusnya & anti-brownout.
+void bootHandWave() {
+  const unsigned long waveDurMs = 2200;   // ~1,1 dtk menekuk pelan + ~1,1 dtk membuka pelan
+  const unsigned long staggerMs = 420;    // jeda fase antar jari agar mengalir lembut
+  const unsigned long totalMs   = waveDurMs + 3 * staggerMs + 260;
+  const float maxCurlPct = 60.0f;         // terlihat jelas tapi lembut & aman tidak mentok/stall
+
+  // Pastikan jempol (jika sempat tersimpan dalam posisi tertutup) ikut membuka halus ke 0%
+  target[0] = 0.0f;
+  hold[0] = false;
+  lastMotor = millis();
+
+  unsigned long t0 = millis();
+  while (true) {
+    unsigned long now = millis();
+    unsigned long el = now - t0;
+    float dt = (now - lastMotor) / 1000.0f;
+    lastMotor = now;
+    if (dt > 0.05f) dt = 0.05f;
+
+    // Jempol pelan kembali ke posisi terbuka (0%) bila belum terbuka
+    int tus = thumbUpdate(dt, now);
+    if (tus != lastUs[0]) { servos[0].writeMicroseconds(tus); lastUs[0] = tus; }
+
+    // 4 jari 180° bergerak bergelombang sangat halus (kurva 0.5*(1 - cos(2*pi*u)), 100 Hz)
+    for (int i = 1; i < 5; i++) {
+      unsigned long startAt = (unsigned long)(i - 1) * staggerMs;
+      float pct = 0.0f;
+      if (el > startAt && el < startAt + waveDurMs) {
+        float u = (float)(el - startAt) / (float)waveDurMs;
+        pct = maxCurlPct * 0.5f * (1.0f - cosf(6.2831853f * u));
+      }
+      float deg = angleFor(i, pct);
+      cur[i] = goalA[i] = deg;
+      int us = 500 + (int)(deg / 180.0f * 2000.0f + 0.5f);
+      if (us != lastUs[i]) { servos[i].writeMicroseconds(us); lastUs[i] = us; }
+    }
+
+    if (el >= totalMs && lastUs[0] == thumb.neutral) break;
+    if (el >= totalMs + 3000) break;  // batas pengaman agar boot tidak pernah macet
+    delay(10);  // 100 Hz: langkah mikrodetik super halus tanpa tersentak
+  }
+
+  // Pastikan semua 5 jari berakhir di posisi terbuka penuh
+  servos[0].writeMicroseconds(thumb.neutral);
+  lastUs[0] = thumb.neutral;
+  for (int i = 0; i < 5; i++) {
+    target[i] = 0.0f;
+    hold[i] = false;
+    if (i >= 1) {
+      cur[i] = goalA[i] = cfg[i].open;
+      int us = 500 + (int)(cur[i] / 180.0f * 2000.0f + 0.5f);
+      servos[i].writeMicroseconds(us);
+      lastUs[i] = us;
+    }
+  }
+  lastMotor = millis();
+}
+
+// Pastikan tangan kembali ke posisi terbuka penuh DULU (sebelum buzzer berbunyi),
+// antisipasi jika sebelumnya ESP32 dimatikan saat jari/jempol masih dalam keadaan menutup.
+void bootOpenFirst() {
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+
+  // Pasang jempol (360° kontinu) dan mulai kembalikan ke 0% bila sebelumnya belum terbuka
+  servos[0].setPeriodHertz(50);
+  servos[0].attach(SERVO_PINS[0], 500, 2500);
+  servos[0].writeMicroseconds(thumb.neutral);
+  lastUs[0] = thumb.neutral;
+  cur[0] = thumbPos;
+  target[0] = 0.0f;
+  hold[0] = false;
+
+  // Pasang 4 servo jari satu per satu langsung ke sudut buka (cfg[i].open) agar pelan & tanpa lonjakan arus
+  for (int i = 1; i < 5; i++) {
+    servos[i].setPeriodHertz(50);
+    cur[i] = goalA[i] = cfg[i].open;
+    target[i] = 0.0f;
+    hold[i] = false;
+    int openUs = 500 + (int)(cfg[i].open / 180.0f * 2000.0f + 0.5f);
+    servos[i].writeMicroseconds(openUs);
+    servos[i].attach(SERVO_PINS[i], 500, 2500);
+    servos[i].writeMicroseconds(openUs);
+    lastUs[i] = openUs;
+    delay(80);
+  }
+
+  // Tunggu sampai 4 jari benar-benar sempat terbuka (~500 ms) & jempol kembali ke 0% bila sempat tertutup
+  unsigned long t0 = millis();
+  lastMotor = t0;
+  while (true) {
+    unsigned long now = millis();
+    float dt = (now - lastMotor) / 1000.0f;
+    lastMotor = now;
+    if (dt > 0.05f) dt = 0.05f;
+
+    int tus = thumbUpdate(dt, now);
+    if (tus != lastUs[0]) { servos[0].writeMicroseconds(tus); lastUs[0] = tus; }
+
+    bool fingersSettled = (now - t0) >= 500;
+    bool thumbDone = (lastUs[0] == thumb.neutral && thumbPos <= 0.5f);
+    if (fingersSettled && thumbDone) break;
+    if (now - t0 >= 4000) break;  // batas pengaman
+    delay(15);
+  }
+  servos[0].writeMicroseconds(thumb.neutral);
+  lastUs[0] = thumb.neutral;
+  if (thumbPosUnsaved) {
+    prefs.putFloat("tpos", thumbPos);
+    thumbPosUnsaved = false;
+  }
+  delay(150);
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(RESET_PIN, INPUT_PULLUP);
@@ -893,31 +1041,35 @@ void setup() {
   prefs.begin("hand", false);
   loadLed();
   ledsBegin();
-
-  // 1) buzzer "tu-la-lit" dulu sampai selesai  2) baru LED meteor menyala
-  bootJingle();
-  ledsOn = true;
+  loadConfig();
   WiFi.persistent(false);
 
   cSsid = prefs.getString("ssid", "");
   cPass = prefs.getString("pass", "");
   cServer = prefs.getString("server", DEFAULT_SERVER);
   if (cServer.length() == 0) cServer = DEFAULT_SERVER;
-  loadConfig();
 
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
-  for (int i = 0; i < 5; i++) {
-    servos[i].setPeriodHertz(50);
-    servos[i].attach(SERVO_PINS[i], 500, 2500);   // range pulsa MG996R
-    cur[i] = goalA[i] = cfg[i].open;               // awal: semua jari terbuka
-  }
-  servos[0].writeMicroseconds(thumb.neutral);      // jempol kontinu: langsung berhenti
-  lastUs[0] = thumb.neutral;
-  cur[0] = thumbPos;                               // posisi jempol terakhir yang tersimpan
-  lastMotor = millis();
+  // Urutan boot:
+  // 1) Kembalikan tangan ke posisi terbuka penuh DULU (bila sempat mati dalam keadaan menutup)
+  bootOpenFirst();
+
+  // 2) Baru bunyi buzzer -> jeda singkat
+  bootJingle();
+  delay(280);
+
+  // 3) Animasi LED meteor RGB sekali jalan di kedua strip
+  bootLedMeteorRgb();
+  delay(150);
+
+  // 4) Gerakan gelombang jari pelan & smooth, berakhir di posisi terbuka penuh
+  bootHandWave();
+
+  // 5) LED masuk ke setelan yang tersimpan di ESP32
+  bclear(0); bclear(1);
+  ledStep[0] = ledStep[1] = 0;
+  lastLed[0] = lastLed[1] = 0;
+  ledsOn = true;
+  ledTick();
   motorUpdate();
 
   if (cSsid.length() > 0 && connectSta()) {

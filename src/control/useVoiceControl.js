@@ -6,6 +6,7 @@ const WAKE_RE =
   /\b(robo\w*|robah\w*|rubah\w*|roban\w*|robon\w*|robben|robot(\s*(hand|tangan))?|robu\w*|jarvis|jarfis|lobo\s*hand|(hello|hi|hey|halo|hai)\s*(robo\w*|robot|hand|jarvis))\b/i;
 const SLEEP_RE = /\b(standby|stand\s*by|sleep|rest|go\s*to\s*sleep|istirahat|tidur)\b/i;
 
+const STARTUP_GREETING = 'Hello, I am Robohand. Ready for your command.';
 const WAKE_REPLIES = [
   'Robohand is online and ready.',
   'Hello. How may I assist you?',
@@ -159,20 +160,20 @@ const QUESTION_RE =
 const HAND_COMMANDS = [
   { key: 'peace', label: 'Peace ✌️', re: /\b(peace|piece|damai|two fingers|dua jari|2 jari|v sign|victory)\b/i, pose: [100, 0, 0, 100, 100], preset: true },
   { key: 'fuck', label: 'Middle finger 🖕', re: /\b(fuck|fak|f\*+|middle finger|jari tengah)\b/i, pose: [100, 100, 0, 100, 100], preset: true },
-  { key: 'teknik', label: 'Rock / Teknik 🤘', re: /\b(rock|rock on|metal|horns|teknik|technique|technic|technical|salam teknik|jari teknik|engineering|spiderman|spider-man)\b/i, pose: [100, 0, 100, 100, 0], preset: true },
+  { key: 'teknik', label: 'Rock / Teknik 🤘', re: /\b(rock|rock on|metal|horns|teknik|technique|technic|technical|salam teknik|jari teknik|engineering|spiderman|spider-man)\b/i, pose: [0, 0, 100, 100, 0], preset: true },
   { key: '0', label: 'Fist (0)', re: /\b(fist|closed|zero|kepalan|kepal|genggam|nol|0)\b/i, pose: [100, 100, 100, 100, 100] },
   { key: '5', label: '5 fingers open', re: /\b(open hand|open all|five|faif|terbuka|buka semua|lima|5)\b/i, pose: [0, 0, 0, 0, 0] },
-  { key: '4', label: '4 fingers open', re: /\b(four|empat|4)\b/i, pose: [0, 0, 0, 0, 100] },
-  { key: '3', label: '3 fingers open', re: /\b(three|tree|tri|tiga|3)\b/i, pose: [0, 0, 0, 100, 100] },
-  { key: '2', label: '2 fingers open', re: /\b(two|dua|2)\b/i, pose: [0, 0, 100, 100, 100] },
-  { key: '1', label: '1 finger open', re: /\b(one|satu|1)\b/i, pose: [0, 100, 100, 100, 100] },
+  { key: '4', label: '4 fingers open', re: /\b(four|empat|4)\b/i, pose: [100, 0, 0, 0, 0] },
+  { key: '3', label: '3 fingers open', re: /\b(three|tree|tri|tiga|3)\b/i, pose: [100, 0, 0, 0, 100] },
+  { key: '2', label: '2 fingers open', re: /\b(two|dua|2)\b/i, pose: [100, 0, 0, 100, 100] },
+  { key: '1', label: '1 finger open', re: /\b(one|satu|1)\b/i, pose: [100, 0, 100, 100, 100] },
 ];
 
 // Homofon singkat ("to", "too", "for", "won") hanya diterima bila seluruh ucapan pendek (1-2 kata)
 const SHORT_HOMOPHONE_HAND = [
-  { key: '4', label: '4 fingers open', re: /^(for|empat)(\s+(finger|fingers|jari))?$/i, pose: [0, 0, 0, 0, 100] },
-  { key: '2', label: '2 fingers open', re: /^(to|too|tu)(\s+(finger|fingers|jari))?$/i, pose: [0, 0, 100, 100, 100] },
-  { key: '1', label: '1 finger open', re: /^(won|wan)(\s+(finger|fingers|jari))?$/i, pose: [0, 100, 100, 100, 100] },
+  { key: '4', label: '4 fingers open', re: /^(for|empat)(\s+(finger|fingers|jari))?$/i, pose: [100, 0, 0, 0, 0] },
+  { key: '2', label: '2 fingers open', re: /^(to|too|tu)(\s+(finger|fingers|jari))?$/i, pose: [100, 0, 0, 100, 100] },
+  { key: '1', label: '1 finger open', re: /^(won|wan)(\s+(finger|fingers|jari))?$/i, pose: [100, 0, 100, 100, 100] },
 ];
 
 // Urutan mode LED persis sama dengan LedStripPanel.jsx & firmware/esp32_hand.ino
@@ -1438,7 +1439,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
           const now = performance.now();
           const elapsed = now - startedAtRef.current;
 
-          if (!heardResultRef.current) {
+          if (!heardResultRef.current && !pausedForTtsRef.current) {
             const ve = DICT[getLang()].voiceErr;
             if (track?.muted || (elapsed > 3500 && peakLevelRef.current < 2)) {
               setWarning(ve.micSilent(label));
@@ -1535,11 +1536,13 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         .catch(() => { });
     }
 
-    // Nyalakan SpeechRecognition SEGERA (tanpa menunggu getUserMedia!) agar mulai mendengar dalam <100ms
-    startRec();
+    // Sapa user secara langsung begitu mic voice dinyalakan (audio sudah di-precache di server -> bunyi instan!),
+    // lalu SpeechRecognition otomatis menyala tepat setelah sapaan selesai agar tidak pernah mendengar suaranya sendiri.
+    setLastAction('Online');
+    speak(STARTUP_GREETING);
     // Jalankan monitor level mik secara paralel di belakang layar (non-blocking)
     startMeter();
-  }, [abortPendingAi, supported, startMeter, startRec]);
+  }, [abortPendingAi, speak, supported, startMeter]);
 
   const toggle = useCallback(() => {
     if (activeRef.current) stop(false);

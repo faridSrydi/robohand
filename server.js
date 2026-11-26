@@ -58,11 +58,11 @@ STRICT SCOPE RULE:
 
 ROBOHAND PROJECT KNOWLEDGE:
 - Creator / maker: Farid Suryadi.
-- Hardware: ESP32 DevKit V1 (WiFi WebSocket, USB Serial 115200 bps, captive portal HandRobot-Setup / handrobot.local); 4 MG996R 180-degree servos for index GPIO 14, middle GPIO 25, ring GPIO 26, pinky GPIO 27; 1 continuous 360-degree servo for the thumb on GPIO 13; 2 WS2812B LED strips with 34 LEDs each (68 total) on GPIO 22 and 23 (11 animations, RGB mode, 3A automatic current limit); buzzer on GPIO 18; dual 18650 batteries in 2S 7.4V with a 2S 20A BMS; USB-C 5V 2A charger; XL4015 6V buck converter for servos and LEDs; Mini360 5V buck converter dedicated to the ESP32; 10A fuse, capacitor, and power switch; wooden frame with tendon-driven three-segment fingers.
+- Hardware: ESP32 DevKit V1 (WiFi WebSocket, USB Serial 115200 bps, captive portal HandRobot-Setup / handrobot.local); 4 MG996R 180-degree servos for index GPIO 14, middle GPIO 26, ring GPIO 27, pinky GPIO 25; 1 continuous 360-degree servo for the thumb on GPIO 13; 2 WS2812B LED strips with 34 LEDs each (68 total) on GPIO 22 and 23 (11 animations, RGB mode, 3A automatic current limit); buzzer on GPIO 18; dual 18650 batteries in 2S 7.4V with a 2S 20A BMS; USB-C 5V 2A charger; XL4015 6V buck converter for servos and LEDs; Mini360 5V buck converter dedicated to the ESP32; 10A fuse, capacitor, and power switch; wooden frame with tendon-driven three-segment fingers.
 - Software: real-time browser webcam hand tracking via MediaPipe Hands (21 landmarks), Node.js WebSocket bridge server, interactive 3D web simulation, calibration stored on ESP32 flash, and AI voice control.
 
 DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly ask for in their latest message):
-- "pose": array of 5 integers 0..100 [thumb,index,middle,ring,pinky] (0=open, 100=closed), or null if the user did not ask to move fingers/hand. Reference: fist/0=[100,100,100,100,100], 1=[0,100,100,100,100], 2=[0,0,100,100,100], 3=[0,0,0,100,100], 4=[0,0,0,0,100], 5/open=[0,0,0,0,0], peace=[100,0,0,100,100], middle finger/fuck=[100,100,0,100,100], rock/metal/teknik/technique/engineering salute=[100,0,100,100,0].
+- "pose": array of 5 integers 0..100 [thumb,index,middle,ring,pinky] (0=open, 100=closed), or null if the user did not ask to move fingers/hand. Reference: fist/0=[100,100,100,100,100], 1=[100,0,100,100,100], 2=[100,0,0,100,100], 3=[100,0,0,0,100], 4=[100,0,0,0,0], 5/open=[0,0,0,0,0], peace=[100,0,0,100,100], middle finger/fuck=[100,100,0,100,100], rock/metal/teknik/technique/engineering salute=[0,0,100,100,0].
 - "led": {strip(0=both,1=strip1,2=strip2),mode(0-10,10=off),r,g,b,bright(1-255),speed(1-100),rgb} or null. Exact modes: 0 Meteor, 1 Solid, 2 Breath, 3 Rainbow, 4 Chase, 5 Scanner, 6 Twinkle/Sparkle, 7 Fire, 8 Wave, 9 Alternate/Blink, 10 Off.
 - "ui": optional UI action object (null if not explicitly requested):
   * "camera": "open" or "close" (ONLY when user explicitly says camera/webcam)
@@ -503,6 +503,7 @@ async function prewarmCommonTts() {
   }
   if (!MsEdgeTTS || !EDGE_FMT) return;
   const phrases = [
+    'Hello, I am Robohand. Ready for your command.',
     'Robohand is online and ready.',
     'Hello. How may I assist you?',
     'All systems online. Ready for your command.',

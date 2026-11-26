@@ -184,7 +184,7 @@ export const S = {};
     const cmds = [
       { en: '"Five fingers"', id: '"Lima jari"', pose: [0, 0, 0, 0, 0] },
       { en: '"Peace"', id: '"Peace"', pose: [0, 0, 1, 1, 1] },
-      { en: '"Rock"', id: '"Teknik"', pose: [0, 1, 1, 0, 1] },
+      { en: '"Rock"', id: '"Teknik"', pose: [0, 1, 1, 0, 0] },
       { en: '"Fist"', id: '"Kepal"', pose: [1, 1, 1, 1, 1] },
     ];
     const cur = [0, 0, 0, 0, 0];
@@ -325,7 +325,7 @@ export const S = {};
     // urutan makeHand: [telunjuk, tengah, manis, kelingking, jempol]
     const poses = [
       { en: 'Peace (2)', id: 'Peace (2)', v: [0, 0, 1, 1, 1] },
-      { en: 'Rock / Metal', id: 'Jari Teknik', v: [0, 1, 1, 0, 1] },
+      { en: 'Rock / Metal', id: 'Jari Teknik', v: [0, 1, 1, 0, 0] },
       { en: '5 Open', id: '5 Terbuka', v: [0, 0, 0, 0, 0] },
       { en: 'Fist (0)', id: 'Kepal (0)', v: [1, 1, 1, 1, 1] },
     ];

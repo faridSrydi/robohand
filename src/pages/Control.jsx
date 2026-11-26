@@ -28,7 +28,7 @@ const SHORTCUT_COUNTS = [0, 1, 2, 3, 4, 5];
 const SHORTCUT_PRESETS = [
   { id: 'dua', label: '✌️', title: '2 Jari (telunjuk & tengah terbuka)', pose: [100, 0, 0, 100, 100] },
   { id: 'fu', label: '🖕', title: 'Jari tengah terbuka', pose: [100, 100, 0, 100, 100] },
-  { id: 'teknik', label: '🤘', title: 'Jari Teknik (telunjuk & kelingking terbuka)', pose: [100, 0, 100, 100, 0] },
+  { id: 'teknik', label: '🤘', title: 'Jari Teknik (jempol, telunjuk & kelingking terbuka)', pose: [0, 0, 100, 100, 0] },
 ];
 const samePose = (a, b) => a.every((v, i) => Math.round(v) === b[i]);
 
@@ -276,7 +276,17 @@ export default function Control() {
     else sfx.click();
   };
 
-  const countPose = (n) => FINGER_NAMES.map((_, i) => (i < n ? 0 : 100));
+  // Urutan: [Jempol, Telunjuk, Tengah, Manis, Kelingking] (0 = buka, 100 = tutup)
+  // 1: telunjuk | 2: telunjuk+tengah | 3: telunjuk+tengah+manis | 4: 4 jari tanpa jempol | 5: semua terbuka
+  const COUNT_POSES = [
+    [100, 100, 100, 100, 100],
+    [100, 0, 100, 100, 100],
+    [100, 0, 0, 100, 100],
+    [100, 0, 0, 0, 100],
+    [100, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+  ];
+  const countPose = (n) => COUNT_POSES[Math.max(0, Math.min(5, n))];
 
   const applyVoiceLed = useCallback(
     (patch, ensureOn = false) => {

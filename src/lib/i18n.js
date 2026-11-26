@@ -179,7 +179,7 @@ export const DICT = {
       openPrefix: 'Open fingers: ',
       patterns: [
         { id: 'dua', label: 'P1', title: 'Pattern 1: index & middle open', pose: [1, 0, 0, 1, 1] },
-        { id: 'rock', label: 'P2', title: 'Pattern 2: index & pinky open', pose: [1, 0, 1, 1, 0] },
+        { id: 'rock', label: 'P2', title: 'Pattern 2: thumb, index & pinky open', pose: [0, 0, 1, 1, 0] },
       ],
       addFinger: 'Open one more finger',
       subFinger: 'Close one finger',
@@ -217,7 +217,7 @@ export const DICT = {
       presets: [
         { id: 'dua', label: '✌️', title: 'Peace (2 fingers)', pose: [100, 0, 0, 100, 100] },
         { id: 'fuck', label: '🖕', title: 'Middle finger', pose: [100, 100, 0, 100, 100] },
-        { id: 'teknik', label: '🤘', title: 'Rock / Engineering salute', pose: [100, 0, 100, 100, 0] },
+        { id: 'teknik', label: '🤘', title: 'Rock / Engineering salute', pose: [0, 0, 100, 100, 0] },
       ],
       micLevelTitle: (name, lvl) => (name ? `Microphone: ${name} (${lvl}%)` : `Mic level: ${lvl}%`),
       recognizing: 'Recognizing speech...',
@@ -550,7 +550,7 @@ export const DICT = {
       openPrefix: 'Jari terbuka: ',
       patterns: [
         { id: 'dua', label: 'P1', title: 'Pola 1: telunjuk dan tengah terbuka', pose: [1, 0, 0, 1, 1] },
-        { id: 'rock', label: 'P2', title: 'Pola 2: telunjuk dan kelingking terbuka', pose: [1, 0, 1, 1, 0] },
+        { id: 'rock', label: 'P2', title: 'Pola 2: jempol, telunjuk dan kelingking terbuka', pose: [0, 0, 1, 1, 0] },
       ],
       addFinger: 'Tambah jari terbuka',
       subFinger: 'Kurangi jari terbuka',
@@ -588,7 +588,7 @@ export const DICT = {
       presets: [
         { id: 'dua', label: '✌️', title: '2 Jari (Peace)', pose: [100, 0, 0, 100, 100] },
         { id: 'fuck', label: '🖕', title: 'Jari tengah', pose: [100, 100, 0, 100, 100] },
-        { id: 'teknik', label: '🤘', title: 'Jari Teknik', pose: [100, 0, 100, 100, 0] },
+        { id: 'teknik', label: '🤘', title: 'Jari Teknik', pose: [0, 0, 100, 100, 0] },
       ],
       micLevelTitle: (name, lvl) => (name ? `Mikrofon: ${name} (${lvl}%)` : `Level mik: ${lvl}%`),
       recognizing: 'Mengenali kata...',

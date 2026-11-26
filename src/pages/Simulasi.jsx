@@ -13,7 +13,7 @@ import { sfx } from '../lib/sound';
 // Pola tetap. 0 = jari terbuka, 1 = jari menekuk. Urutan: Jempol, Telunjuk, Tengah, Manis, Kelingking.
 const PATTERNS = [
   { id: 'dua', label: 'P1', title: 'Pola 1: telunjuk dan tengah terbuka', pose: [1, 0, 0, 1, 1] },
-  { id: 'rock', label: 'P2', title: 'Pola 2: telunjuk dan kelingking terbuka', pose: [1, 0, 1, 1, 0] },
+  { id: 'rock', label: 'P2', title: 'Pola 2: jempol, telunjuk dan kelingking terbuka', pose: [0, 0, 1, 1, 0] },
 ];
 
 const SIM_HOME = { az: 0.22, el: 0.08 };
@@ -297,7 +297,16 @@ export default function Simulasi() {
   const applyCount = useCallback((n, { silent = false } = {}) => {
     const v = Math.max(0, Math.min(5, n));
     const prev = openRef.current;
-    for (let i = 0; i < 5; i++) pose[i] = i < v ? 0 : 1;
+    // 1: telunjuk | 2: telunjuk+tengah | 3: telunjuk+tengah+manis | 4: 4 jari tanpa jempol | 5: semua terbuka
+    const table = [
+      [1, 1, 1, 1, 1],
+      [1, 0, 1, 1, 1],
+      [1, 0, 0, 1, 1],
+      [1, 0, 0, 0, 1],
+      [1, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+    ];
+    for (let i = 0; i < 5; i++) pose[i] = table[v][i];
     openRef.current = v;
     setOpen(v);
     setPattern(null);
