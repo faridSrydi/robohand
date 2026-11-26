@@ -56,7 +56,7 @@ function normalizeTranscript(s) {
     .replace(/\b(metior|meteors)\b/gi, 'meteor')
     .replace(/\b(skener|skaner|scanners)\b/gi, 'scanner')
     .replace(/\b(twinkel|twinkling)\b/gi, 'twinkle')
-    .replace(/\b(tekhnik|tehnix|teknic)\b/gi, 'teknik')
+    .replace(/\b(tekhnik|tehnik|tehnix|teknic|technique|techniques|technic|technics|technical|tech\s+nick|tek\s+nik|titanic)\b/gi, 'teknik')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -139,7 +139,7 @@ const QUESTION_RE =
 const HAND_COMMANDS = [
   { key: 'peace', label: 'Peace ✌️', re: /\b(peace|piece|damai|two fingers|dua jari|2 jari|v sign|victory)\b/i, pose: [100, 0, 0, 100, 100], preset: true },
   { key: 'fuck', label: 'Middle finger 🖕', re: /\b(fuck|fak|f\*+|middle finger|jari tengah)\b/i, pose: [100, 100, 0, 100, 100], preset: true },
-  { key: 'teknik', label: 'Rock / Teknik 🤘', re: /\b(rock|metal|horns|teknik|engineering)\b/i, pose: [100, 0, 100, 100, 0], preset: true },
+  { key: 'teknik', label: 'Rock / Teknik 🤘', re: /\b(rock|rock on|metal|horns|teknik|technique|technic|technical|salam teknik|jari teknik|engineering|spiderman|spider-man)\b/i, pose: [100, 0, 100, 100, 0], preset: true },
   { key: '0', label: 'Fist (0)', re: /\b(fist|closed|zero|kepalan|kepal|genggam|nol|0)\b/i, pose: [100, 100, 100, 100, 100] },
   { key: '5', label: '5 fingers open', re: /\b(open hand|open all|five|faif|terbuka|buka semua|lima|5)\b/i, pose: [0, 0, 0, 0, 0] },
   { key: '4', label: '4 fingers open', re: /\b(four|empat|4)\b/i, pose: [0, 0, 0, 0, 100] },

@@ -61,7 +61,7 @@ ROBOHAND PROJECT KNOWLEDGE:
 - Software: real-time browser webcam hand tracking via MediaPipe Hands (21 landmarks), Node.js WebSocket bridge server, interactive 3D web simulation, calibration stored on ESP32 flash, and AI voice control.
 
 DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly ask for in their latest message):
-- "pose": array of 5 integers 0..100 [thumb,index,middle,ring,pinky] (0=open, 100=closed), or null if the user did not ask to move fingers/hand. Reference: fist/0=[100,100,100,100,100], 1=[0,100,100,100,100], 2=[0,0,100,100,100], 3=[0,0,0,100,100], 4=[0,0,0,0,100], 5/open=[0,0,0,0,0], peace=[100,0,0,100,100], middle finger/fuck=[100,100,0,100,100], rock/metal/engineering salute=[100,0,100,100,0].
+- "pose": array of 5 integers 0..100 [thumb,index,middle,ring,pinky] (0=open, 100=closed), or null if the user did not ask to move fingers/hand. Reference: fist/0=[100,100,100,100,100], 1=[0,100,100,100,100], 2=[0,0,100,100,100], 3=[0,0,0,100,100], 4=[0,0,0,0,100], 5/open=[0,0,0,0,0], peace=[100,0,0,100,100], middle finger/fuck=[100,100,0,100,100], rock/metal/teknik/technique/engineering salute=[100,0,100,100,0].
 - "led": {strip(0=both,1=strip1,2=strip2),mode(0-10,10=off),r,g,b,bright(1-255),speed(1-100),rgb} or null. Exact modes: 0 Meteor, 1 Solid, 2 Breath, 3 Rainbow, 4 Chase, 5 Scanner, 6 Twinkle/Sparkle, 7 Fire, 8 Wave, 9 Alternate/Blink, 10 Off.
 - "ui": optional UI action object (null if not explicitly requested):
   * "camera": "open" or "close" (ONLY when user explicitly says camera/webcam)
