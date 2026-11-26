@@ -106,6 +106,9 @@ export default function Control() {
   const [ledStudioOpen, setLedStudioOpen] = useState(false);
   const ledStudioOpenRef = useRef(false);
   ledStudioOpenRef.current = ledStudioOpen;
+  const [ledStripTarget, setLedStripTarget] = useState(0); // 0 = both, 1 = strip 1, 2 = strip 2
+  const ledStripTargetRef = useRef(0);
+  ledStripTargetRef.current = ledStripTarget;
   const [panelClosed, setPanelClosed] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches
   );
@@ -278,7 +281,9 @@ export default function Control() {
   const applyVoiceLed = useCallback(
     (patch, ensureOn = false) => {
       const prev = loadLedCfg();
-      const targetStrip = patch.strip === 1 || patch.strip === 2 ? patch.strip : 0; // 0 = kedua strip, 1 = strip 1, 2 = strip 2
+      const hasExplicitStrip = patch.strip === 0 || patch.strip === 1 || patch.strip === 2;
+      const targetStrip = hasExplicitStrip ? patch.strip : ledStripTargetRef.current; // 0 = kedua strip, 1 = strip 1, 2 = strip 2
+      if (hasExplicitStrip) setLedStripTarget(targetStrip);
       const { strip: _drop, brightDelta, speedDelta, ...cleanPatch } = patch;
 
       const updateOne = (base) => {
@@ -337,9 +342,20 @@ export default function Control() {
     if (ui.panel === 'open' && panelClosed) {
       sfx.toggle(true);
       setPanelClosed(false);
-    } else if (ui.panel === 'close' && !panelClosed) {
-      sfx.toggle(false);
-      setPanelClosed(true);
+    } else if (ui.panel === 'close') {
+      // Jika Studio 3D LED sedang terbuka penuh di layar, "close panel" menutup Studio LED lebih dulu
+      if (ledStudioOpenRef.current) {
+        sfx.toggle(false);
+        setLedStudioOpen(false);
+      } else if (!panelClosed) {
+        sfx.toggle(false);
+        setPanelClosed(true);
+      }
+    }
+
+    if (ui.ledStrip === 0 || ui.ledStrip === 1 || ui.ledStrip === 2) {
+      sfx.toggle(true);
+      setLedStripTarget(ui.ledStrip);
     }
 
     if (ui.ledPanel === 'open') {
@@ -887,6 +903,8 @@ export default function Control() {
               angles={angles}
               studioOpen={ledStudioOpen}
               onStudioChange={setLedStudioOpen}
+              stripTarget={ledStripTarget}
+              onStripTargetChange={setLedStripTarget}
             />
             </div>
           </div>

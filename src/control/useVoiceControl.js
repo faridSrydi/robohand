@@ -24,14 +24,15 @@ function normalizeTranscript(s) {
     .replace(/[.,!?;:"'()]/g, ' ')
     .replace(/\bl[\s.-]+e[\s.-]+d\b/gi, 'led')
     .replace(/\bel[\s-]+e[\s-]+d\b/gi, 'led')
-    .replace(/\b(elidi|el\s*i\s*di|lidi|leed)\b/gi, 'led')
+    .replace(/\b(elidi|el\s*i\s*di|lidi|leed|ellie\s*d)\b/gi, 'led')
     .replace(/\bwi[\s-]+fi\b/gi, 'wifi')
     .replace(/\bu[\s.-]+s[\s.-]+b\b/gi, 'usb')
     .replace(/\b(spaniel|cocker\s+spaniel|klos\s+panel|klose\s+panel)\b/gi, 'close panel')
-    .replace(/\b(clothes|klaus|cross|claws|glows|klos|klose)\s+(panel|camera|cam|led|overlay|light|studio)\b/gi, 'close $2')
+    .replace(/\b(clothes|klaus|cross|claws|glows|klos|klose)\s+(panel|camera|cam|led|lead|lady|let|overlay|light|lights|studio|preview)\b/gi, 'close $2')
     .replace(/\b(close|open|hide|show|tutup|buka|sembunyikan|tampilkan)\s+(fennel|funnel|channel|finale|pano|pannel|penal|penel|fanel)\b/gi, '$1 panel')
-    .replace(/\b(control|kontrol)\s+(fennel|funnel|channel|pannel|penal|penel|fanel)\b/gi, 'control panel')
-    .replace(/\b(open|close|set|show|hide|buka|tutup|atur|nyalakan|nyalain|matikan|matiin)\s+(lead|lady|let)\b/gi, '$1 led')
+    .replace(/\b(control|kontrol|led)\s+(fennel|funnel|channel|pannel|penal|penel|fanel)\b/gi, '$1 panel')
+    .replace(/\b(open|close|set|show|hide|exit|buka|tutup|atur|nyalakan|nyalain|matikan|matiin|select|choose|pilih|switch\s+to|go\s+to|ke)\s+(lead|lady|let)\b/gi, '$1 led')
+    .replace(/\b(lead|lady)\s+(strip|street|script|trip|panel|control|studio|overlay|1|2|one|two|first|second|pertama|kedua)\b/gi, 'led $2')
     .replace(/\b(duck|dog|doc|dork|dart|dak)\s+(mode|mood|theme|tema)\b/gi, 'dark mode')
     .replace(/\b(dark)\s+(mood|mod|mot)\b/gi, 'dark mode')
     .replace(/\b(like|right|white|ride|lite|lait)\s+(mode|mood|theme|tema)\b/gi, 'light mode')
@@ -39,11 +40,18 @@ function normalizeTranscript(s) {
     .replace(/\b(camara|camero|kameha|kamra|kamerah)\b/gi, 'camera')
     .replace(/\b(feast|fistt|fis)\b/gi, 'fist')
     .replace(/\b(peas|peac|piss|pis)\b/gi, 'peace')
-    .replace(/\b(strip|led|lampu)\s+(?:yang\s+)?(pertama|kesatu|satu|wan|won)\b/gi, 'strip 1')
-    .replace(/\b(strip|led|lampu)\s+(?:yang\s+)?(kedua|dua|tu)\b/gi, 'strip 2')
+    // Normalisasi salah dengar "strip" ("street", "script", "strict", "stripe", "trip", "strep") di dekat angka/posisi/LED
+    .replace(/\b(street|script|strict|stripe|strep|trip|drip|strips)\s+(?:yang\s+)?(1|2|one|two|to|too|tu|wan|won|satu|dua|pertama|kedua|kiri|kanan)\b/gi, 'strip $2')
+    .replace(/\b(first|second|left|right|both|all|kedua|semua|led|lampu)\s+(street|script|strict|stripe|strep|trip|strips)\b/gi, '$1 strip')
+    .replace(/\b(strip|led|lampu)\s+(?:yang\s+)?(pertama|kesatu|satu|one|wan|won|kiri)\b/gi, 'strip 1')
+    .replace(/\b(strip|led|lampu)\s+(?:yang\s+)?(kedua|dua|two|tu|kanan)\b/gi, 'strip 2')
+    .replace(/\b(first|left)\s+(strip|led|lampu)\b/gi, 'strip 1')
+    .replace(/\b(second|right)\s+(strip|led|lampu)\b/gi, 'strip 2')
     .replace(/\bstrip\s+(to|too)\b/gi, 'strip 2')
     .replace(/\b(led|lampu)\s+1\b/gi, 'strip 1')
     .replace(/\b(led|lampu)\s+2\b/gi, 'strip 2')
+    .replace(/\b(both|all|semua|kedua)\s+(led|leds|lampu|strip|strips)\b/gi, 'both strips')
+    .replace(/\bled\s+strip\s+([12])\b/gi, 'strip $1')
     .replace(/\b(nyalain|idupin|hidupin|hidupkan)\b/gi, 'nyalakan')
     .replace(/\b(matiin|padamin|padamkan)\b/gi, 'matikan')
     .replace(/\b(bukain)\b/gi, 'buka')
@@ -85,7 +93,7 @@ function editDistance(a, b) {
 // Kosakata kunci perintah: koreksi fuzzy hanya bila jarak edit sangat dekat (presisi tinggi, tidak salah tangkap)
 const FUZZY_VOCAB = [
   'robohand', 'jarvis', 'standby',
-  'camera', 'kamera', 'panel', 'sidebar', 'overlay', 'studio',
+  'camera', 'kamera', 'panel', 'sidebar', 'overlay', 'studio', 'preview', 'strip', 'strips',
   'calibration', 'kalibrasi', 'tracking', 'manual', 'binary', 'smoothing',
   'rainbow', 'pelangi', 'meteor', 'breath', 'scanner', 'pemindai', 'twinkle', 'sparkle', 'alternate',
   'brightness', 'kecerahan', 'kecepatan', 'brighter', 'dimmer', 'faster', 'slower',
@@ -128,9 +136,9 @@ function cleanTranscript(s) {
   return fuzzyRepair(normalizeTranscript(s));
 }
 
-// Cek apakah ucapan masih merupakan awalan kalimat perintah yang belum selesai (jangan eksekusi terburu-buru di interim)
+// Cek apakah ucapan masih berupa awalan gantung yang belum punya target (JANGAN blokir "close led", "open led", "strip 1/2"!)
 const INCOMPLETE_PREFIX_RE =
-  /^(open|close|hide|show|set|change|make|turn|switch|go|put|buka|tutup|atur|ubah|ganti|nyalakan|matikan|strip|strip\s+[12]|led|lampu|brightness|kecerahan|speed|kecepatan|finger\s+speed|camera\s+brightness|dark|light|mode|tema|warna|color|warna\s+led|led\s+strip)(\s+(to|at|ke|the|on|off|up|down|strip|strip\s+[12]|led|mode|color|warna|brightness|speed))?$/i;
+  /^(open|close|hide|show|set|change|make|turn|switch|go|put|select|choose|buka|tutup|atur|ubah|ganti|pilih|nyalakan|matikan|strip|led|lampu|brightness|kecerahan|speed|kecepatan|finger\s+speed|camera\s+brightness|dark|light|mode|tema|warna|color)(\s+(to|at|ke|the|on|off|up|down))?$/i;
 
 const QUESTION_RE =
   /[?]|\b(who|what|why|how|when|where|tell|explain|creator|maker|built|made|build|component|components|parts|battery|batteries|servo|servos|esp32|esp|can you|are you|apa|siapa|kenapa|bagaimana|gimana|kabar|komponen|pembuat|baterai|jelaskan|ceritakan)\b/i;
@@ -334,7 +342,7 @@ function parseLedCommand(text) {
   };
 }
 
-function parseUiCommand(text) {
+function parseUiCommand(text, state = null) {
   const ui = {};
   const labels = [];
 
@@ -364,27 +372,40 @@ function parseUiCommand(text) {
     }
   }
 
-  // "open LED control / set LED / LED settings / open overlay" vs "close LED control / close overlay"
-  const hasLedWord = ui.theme ? /\b(led|strip|lampu)\b/i.test(text) : /\b(led|light|lights|lamp|lampu)\b/i.test(text);
-  const hasLedSetting = Boolean(parseLedCommand(text));
-  if (hasLedWord && /\b(control|panel|studio|overlay|menu|settings|setting|pengaturan|kontrol)\b/i.test(text)) {
-    if (/\b(close|hide|exit|tutup|sembunyikan)\b/i.test(text)) {
-      ui.ledPanel = 'close';
-      labels.push('LED overlay closed');
-    } else if (/\b(open|show|set|buka|tampilkan|atur)\b/i.test(text)) {
-      ui.ledPanel = 'open';
-      labels.push('LED overlay open');
-    }
-  } else if (!hasLedSetting && hasLedWord && /\b(open|show|set|buka|tampilkan|atur)\b/i.test(text)) {
-    // Jika user bilang "open LED" atau "set LED" (tanpa menyebut warna/mode), langsung buka overlay LED Studio
-    ui.ledPanel = 'open';
-    labels.push('LED overlay open');
-  } else if (/\b(close|hide|exit|tutup)\b/i.test(text) && /\b(overlay|led studio|led|lampu)\b/i.test(text) && !/\bturn off\b/i.test(text)) {
-    ui.ledPanel = 'close';
-    labels.push('LED overlay closed');
+  // Pilih tab strip LED aktif (Strip 1, Strip 2, atau Both strips) langsung lewat suara
+  if (/\bstrip\s*1\b/i.test(text)) {
+    ui.ledStrip = 1;
+    labels.push('Strip 1');
+  } else if (/\bstrip\s*2\b/i.test(text)) {
+    ui.ledStrip = 2;
+    labels.push('Strip 2');
+  } else if (/\b(both\s*strips?|all\s*strips?|kedua\s*strip)\b/i.test(text)) {
+    ui.ledStrip = 0;
+    labels.push('Both strips');
   }
 
-  if (/\b(control panel|panel|sidebar)\b/i.test(text) && !hasLedWord) {
+  // "open LED / open LED panel / LED studio" vs "close LED / close LED panel / close overlay / close preview"
+  const hasLedWord = ui.theme ? /\b(led|strip|lampu)\b/i.test(text) : /\b(led|light|lights|lamp|lampu|studio|overlay|preview|3d)\b/i.test(text);
+  const hasLedSetting = Boolean(parseLedCommand(text));
+  const wantsClose = /\b(close|hide|exit|back|kembali|keluar|tutup|sembunyikan)\b/i.test(text) && !/\bturn off\b/i.test(text);
+  const wantsOpen = /\b(open|show|set|buka|tampilkan|atur)\b/i.test(text);
+
+  if (hasLedWord && wantsClose) {
+    ui.ledPanel = 'close';
+    labels.push('LED closed');
+  } else if (state?.ledStudioOpen && /^(close|hide|exit|back|tutup|keluar|kembali)(\s+(this|it|panel|menu|window|studio|overlay|preview))?$/i.test(text.trim())) {
+    ui.ledPanel = 'close';
+    labels.push('LED closed');
+  } else if (hasLedWord && /\b(control|panel|studio|overlay|menu|settings|setting|preview|pengaturan|kontrol)\b/i.test(text) && wantsOpen) {
+    ui.ledPanel = 'open';
+    labels.push('LED open');
+  } else if (!hasLedSetting && ui.ledStrip == null && hasLedWord && wantsOpen) {
+    // Jika user bilang "open LED" atau "set LED" (tanpa menyebut warna/mode/strip), langsung buka overlay LED Studio
+    ui.ledPanel = 'open';
+    labels.push('LED open');
+  }
+
+  if (/\b(control panel|panel|sidebar)\b/i.test(text) && !hasLedWord && !ui.ledPanel) {
     if (/\b(close|hide|tutup|sembunyikan)\b/i.test(text)) {
       ui.panel = 'close';
       labels.push('Panel closed');
@@ -508,7 +529,7 @@ function findLatestHandCommand(text) {
 
 // Cek apakah kalimat bisa dieksekusi LANGSUNG (~150ms lokal, nol jeda API)
 // mencakup perintah jari, warna/mode LED, dan kontrol UI (kamera, panel kontrol, LED overlay)
-function canHandleInstantly(text) {
+function canHandleInstantly(text, state = null) {
   const cleaned = text
     .replace(WAKE_RE, ' ')
     .replace(/\b(hello|hi|hey|please|halo|hai|tolong|coba|dong|ya|nih|finger|fingers|jari|the|it|to|jadi|warna)\b/gi, ' ')
@@ -517,7 +538,7 @@ function canHandleInstantly(text) {
   if (QUESTION_RE.test(cleaned)) return null;
   if (SLEEP_RE.test(cleaned) && cleaned.split(/\s+/).length <= 4) return 'sleep';
 
-  const uiCmd = parseUiCommand(text);
+  const uiCmd = parseUiCommand(text, state);
   const ledCmd = parseLedCommand(text);
   const handCmd = findLatestHandCommand(cleaned);
   if (uiCmd || ledCmd) return 'cmd';
@@ -881,11 +902,12 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       const text = cleanTranscript(activeText);
       if (!text) return false;
 
+      const curState = getStateRef.current?.() || null;
       // Sapaan ("hello", "hi", "hey", "robohand", "jarvis") atau wake word
-      const isPureGreeting = canHandleInstantly(text) === 'wake';
+      const isPureGreeting = canHandleInstantly(text, curState) === 'wake';
       if (isWakeTriggered || isPureGreeting) {
         const afterWake = text.replace(WAKE_RE, ' ').replace(/\b(hello|hi|hey|halo|hai)\b/gi, ' ').trim();
-        const uiCmd = afterWake ? parseUiCommand(afterWake) : null;
+        const uiCmd = afterWake ? parseUiCommand(afterWake, curState) : null;
         const ledCmd = afterWake ? parseLedCommand(afterWake) : null;
         const handCmd = afterWake && !uiCmd ? findLatestHandCommand(afterWake) : null;
 
@@ -915,7 +937,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       }
 
       const cleanForCmd = text.replace(WAKE_RE, ' ').trim();
-      const uiCmd = parseUiCommand(cleanForCmd);
+      const uiCmd = parseUiCommand(cleanForCmd, curState);
       const ledCmd = parseLedCommand(cleanForCmd);
       const handCmd = !uiCmd && !ledCmd ? findLatestHandCommand(cleanForCmd) : null;
 
@@ -1105,6 +1127,12 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     const SR = getSR();
     if (!SR || !activeRef.current) return;
 
+    // Setiap instance SpeechRecognition baru selalu mulai dari segIdx = 0.
+    // Wajib reset segIdx/wordCount dari instance lama agar ucapan baru (mis. "who are you")
+    // TIDAK pernah ditelan oleh offset/dedup dari segmen sebelum TTS atau restart!
+    lastExecRef.current = { key: lastExecRef.current.key, time: lastExecRef.current.time, segIdx: -1, wordCount: 0 };
+    lastAiSegRef.current = { segIdx: -1, text: '', time: 0 };
+
     const r = new SR();
     r.lang = langRef.current;
     r.continuous = continuousRef.current;
@@ -1176,6 +1204,7 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
       }
 
       // Kumpulkan hingga 5 alternatif transkrip dari Chrome + skor akurasinya (confidence + kecocokan perintah)
+      const curState = getStateRef.current?.() || null;
       const candidates = [];
       const seen = new Set();
       for (let a = 0; a < Math.min(5, res.length); a += 1) {
@@ -1188,8 +1217,9 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         seen.add(cleaned);
 
         const conf = typeof res[a]?.confidence === 'number' ? res[a].confidence : (a === 0 ? 0.6 : 0.4);
-        const kind = canHandleInstantly(cleaned);
-        const incomplete = INCOMPLETE_PREFIX_RE.test(cleaned);
+        const kind = canHandleInstantly(cleaned, curState);
+        // Bila overlay LED terbuka dan user bilang "close"/"tutup"/"exit", jangan dianggap prefix tak lengkap
+        const incomplete = kind === 'cmd' ? false : INCOMPLETE_PREFIX_RE.test(cleaned);
         // Prioritaskan alternatif yang cocok perintah utuh + confidence tinggi
         let score = conf * 10 - a * 0.5;
         if (kind === 'cmd' && !incomplete) score += 100;
@@ -1249,16 +1279,17 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
         if (!activeRef.current || thinkingRef.current || pausedForTtsRef.current) return;
         if (!awakeRef.current && !hasWake) return;
 
-        const prevAi = lastAiSegRef.current;
-        if (prevAi.segIdx === segIdx && (prevAi.text === displayText || performance.now() - prevAi.time < 1600)) return;
-        lastAiSegRef.current = { segIdx, text: displayText, time: performance.now() };
-
         if (matchedInstant) {
           abortPendingAi();
           executeLocal(matchedInstant, segIdx, rawWordCount, performance.now(), hasWake);
           return;
         }
+        // Cek noise/low-confidence SEBELUM mencatat lastAiSegRef agar tidak memblokir kalimat utuh yang datang sesudahnya
         if (isLowConf || isShortNoise) return;
+
+        const prevAi = lastAiSegRef.current;
+        if (prevAi.segIdx === segIdx && (prevAi.text === displayText || performance.now() - prevAi.time < 1400)) return;
+        lastAiSegRef.current = { segIdx, text: displayText, time: performance.now() };
 
         if (aiActiveRef.current) {
           const cur = aiPendingRef.current;
@@ -1476,6 +1507,14 @@ export function useVoiceControl({ onPose, onLed, onUi, onWakeChime, getState, en
     // Langsung siap menerima perintah maupun pertanyaan begitu dinyalakan (cukup panggil "Robohand" jika sedang standby)
     awakeRef.current = true;
     setAwake(true);
+
+    // Jika cek status Gemini sempat gagal saat load awal (mis. server baru restart), cek ulang otomatis
+    if (!aiActiveRef.current) {
+      fetch('/api/voice-ai/status', { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && activeRef.current) setAiConfigured(Boolean(d.configured)); })
+        .catch(() => { });
+    }
 
     // Nyalakan SpeechRecognition SEGERA (tanpa menunggu getUserMedia!) agar mulai mendengar dalam <100ms
     startRec();

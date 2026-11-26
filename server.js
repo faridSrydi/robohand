@@ -66,7 +66,8 @@ DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly
 - "ui": optional UI action object (null if not explicitly requested):
   * "camera": "open" or "close" (ONLY when user explicitly says camera/webcam)
   * "panel": "open" or "close" (ONLY when user explicitly says control panel/sidebar)
-  * "ledPanel": "open" or "close" (ONLY when user asks to open/close LED control/overlay/studio)
+  * "ledPanel": "open" or "close" (ONLY when user asks to open/close LED control/panel/overlay/studio)
+  * "ledStrip": 0 (both strips), 1 (strip 1), or 2 (strip 2) (ONLY when user asks to select/switch LED strip 1, strip 2, or both strips)
   * "mode": "track" or "manual" (ONLY when user asks to switch tracking/manual mode)
   * "connection": "wifi" or "serial" (ONLY when user asks to switch WiFi/USB)
   * "servoCal": "open" or "close" (ONLY when user asks to open/close servo calibration)
@@ -110,6 +111,7 @@ const JARVIS_SCHEMA = {
         camera: { type: 'STRING', nullable: true },
         panel: { type: 'STRING', nullable: true },
         ledPanel: { type: 'STRING', nullable: true },
+        ledStrip: { type: 'INTEGER', nullable: true },
         mode: { type: 'STRING', nullable: true },
         connection: { type: 'STRING', nullable: true },
         servoCal: { type: 'STRING', nullable: true },
@@ -256,8 +258,11 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null, la
       if ((parsed.ui.camera === 'open' || parsed.ui.camera === 'close') && /\b(cam|camera|camara|webcam|video|kamera)\b/i.test(q)) {
         u.camera = parsed.ui.camera;
       }
-      if ((parsed.ui.ledPanel === 'open' || parsed.ui.ledPanel === 'close') && /\b(led|l\s*\.?\s*e\s*\.?\s*d|lead|lady|light|lights|lamp|lampu|overlay|studio)\b/i.test(q)) {
+      if ((parsed.ui.ledPanel === 'open' || parsed.ui.ledPanel === 'close') && /\b(led|l\s*\.?\s*e\s*\.?\s*d|lead|lady|light|lights|lamp|lampu|overlay|studio|preview|3d|close|tutup|exit|back)\b/i.test(q)) {
         u.ledPanel = parsed.ui.ledPanel;
+      }
+      if ((parsed.ui.ledStrip === 0 || parsed.ui.ledStrip === 1 || parsed.ui.ledStrip === 2) && /\b(strip|street|script|led|lampu|both|all|kedua|pertama|satu|dua|1|2)\b/i.test(q)) {
+        u.ledStrip = parsed.ui.ledStrip;
       }
       if ((parsed.ui.panel === 'open' || parsed.ui.panel === 'close') && /\b(panel|pannel|sidebar|spaniel|funnel|fennel|channel)\b/i.test(q) && !u.ledPanel) {
         u.panel = parsed.ui.panel;

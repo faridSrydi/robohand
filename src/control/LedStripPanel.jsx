@@ -106,7 +106,15 @@ function dotBg(c) {
 
 const STUDIO_EASE = [0.22, 1, 0.36, 1];
 
-export default function LedStripPanel({ cfgLed, send, angles, studioOpen, onStudioChange }) {
+export default function LedStripPanel({
+  cfgLed,
+  send,
+  angles,
+  studioOpen,
+  onStudioChange,
+  stripTarget,
+  onStripTargetChange,
+}) {
   const { tr } = useI18n();
   const lt = tr.led;
   const [open, setOpen] = useState(false);
@@ -124,7 +132,17 @@ export default function LedStripPanel({ cfgLed, send, angles, studioOpen, onStud
   const [canvasReady, setCanvasReady] = useState(false);
   const [leds, setLeds] = useState(loadLedCfg);
   const externalLeds = useSavedLeds();
-  const [target, setTarget] = useState(0); // 0 = kedua strip, 1 = strip 1, 2 = strip 2
+  const [internalTarget, setInternalTarget] = useState(0); // 0 = kedua strip, 1 = strip 1, 2 = strip 2
+  const isTargetControlled = typeof stripTarget === 'number';
+  const target = isTargetControlled ? stripTarget : internalTarget;
+  const setTarget = useCallback(
+    (next) => {
+      const v = next === 1 || next === 2 ? next : 0;
+      if (isTargetControlled) onStripTargetChange?.(v);
+      else setInternalTarget(v);
+    },
+    [isTargetControlled, onStripTargetChange]
+  );
   const pose = useMemo(() => [0, 0, 0, 0, 0], []);
 
   // Sinkronkan status tombol dropdown saat overlay dibuka/ditutup dari perintah suara
