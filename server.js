@@ -77,7 +77,6 @@ DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly
   * "smooth": integer 5..100 (ONLY when user asks to adjust smoothing)
   * "binary": boolean (ONLY when user asks to toggle binary/analog mode)
   * "demo": "start" or "stop" (ONLY when user asks to start/stop auto demo mode)
-  * "dance": "start" or "stop" (ONLY when user asks to start/stop music beat dance mode / mode tarian)
   * "relax": boolean (true to relax/release/detach servos, false to wake/enable servos)
   * "countTo": integer 2..5 (ONLY when user asks to count sequentially e.g. "count 1 to 3", "count to 5", "hitung 1 sampai 5")
 - "sleep": true ONLY if the user tells you to standby, sleep, or rest.
@@ -125,7 +124,6 @@ const JARVIS_SCHEMA = {
         smooth: { type: 'INTEGER', nullable: true },
         binary: { type: 'BOOLEAN', nullable: true },
         demo: { type: 'STRING', nullable: true },
-        dance: { type: 'STRING', nullable: true },
         relax: { type: 'BOOLEAN', nullable: true },
         countTo: { type: 'INTEGER', nullable: true },
       },
@@ -299,9 +297,6 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null, la
       }
       if ((parsed.ui.demo === 'start' || parsed.ui.demo === 'stop') && /\b(demo|showcase|otomatis|auto)\b/i.test(q)) {
         u.demo = parsed.ui.demo;
-      }
-      if ((parsed.ui.dance === 'start' || parsed.ui.dance === 'stop') && /\b(dance|dancing|tari|tarian|menari|joget|music|musik|beat)\b/i.test(q)) {
-        u.dance = parsed.ui.dance;
       }
       if (typeof parsed.ui.relax === 'boolean' && /\b(relax|release|detach|lepas|kendur|istirahat|wake|aktifkan)\b/i.test(q)) {
         u.relax = parsed.ui.relax;

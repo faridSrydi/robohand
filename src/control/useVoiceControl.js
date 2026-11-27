@@ -113,7 +113,7 @@ const FUZZY_VOCAB = [
   'rainbow', 'pelangi', 'meteor', 'breath', 'scanner', 'pemindai', 'twinkle', 'sparkle', 'alternate',
   'brightness', 'kecerahan', 'kecepatan', 'brighter', 'dimmer', 'faster', 'slower',
   'yellow', 'orange', 'purple', 'violet', 'kuning', 'merah', 'hijau', 'putih',
-  'peace', 'teknik', 'kepalan', 'terbuka', 'indonesian', 'english', 'demo', 'relax', 'hitung', 'count', 'dance', 'tarian', 'joget',
+  'peace', 'teknik', 'kepalan', 'terbuka', 'indonesian', 'english', 'demo', 'relax', 'hitung', 'count',
 ];
 
 function fuzzyRepair(text) {
@@ -377,17 +377,6 @@ function parseUiCommand(text, state = null) {
   } else if (/\b(english|bahasa inggris|switch to english)\b/i.test(text)) {
     ui.lang = 'en';
     labels.push('Language EN');
-  }
-
-  // Mode Tarian mengikuti beat musik (anti-stall)
-  if (/\b(dance|dancing|tari|tarian|menari|joget|music\s*mode|beat\s*mode)\b/i.test(text)) {
-    if (/\b(stop|off|end|cancel|exit|close|berhenti|hentikan|matikan|tutup)\b/i.test(text)) {
-      ui.dance = 'stop';
-      labels.push('Dance stopped');
-    } else {
-      ui.dance = 'start';
-      labels.push('Dance mode');
-    }
   }
 
   // Mode Auto Demo (berganti pose 0-5, peace, middle, teknik & LED otomatis secara halus)
