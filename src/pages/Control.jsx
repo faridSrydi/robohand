@@ -12,6 +12,7 @@ import { useAuth } from '../lib/auth';
 import { useRobotSocket } from '../control/useRobotSocket';
 import { useHandTracking } from '../control/useHandTracking';
 import { useVoiceControl } from '../control/useVoiceControl';
+import { useDanceMode } from '../control/useDanceMode';
 import CalibrationWizard from '../control/CalibrationWizard';
 import LedStripPanel from '../control/LedStripPanel';
 
@@ -115,7 +116,7 @@ function ratios(lm, W, H) {
 
 export default function Control() {
   const navigate = useNavigate();
-  const { tr } = useI18n();
+  const { lang, tr } = useI18n();
   const c = tr.ctl;
   const fingerNames = tr.fingers;
   const auth = useAuth();
@@ -138,6 +139,7 @@ export default function Control() {
   const [camSettingsOpen, setCamSettingsOpen] = useState(false);
   const [servoOpen, setServoOpen] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
+  const [danceOpen, setDanceOpen] = useState(false);
   const [demoRunning, setDemoRunning] = useState(false);
   const [countingTo, setCountingTo] = useState(0); // 0 = idle, 2..5 = sedang menghitung 1..n
   const [relaxed, setRelaxed] = useState(false);
@@ -153,6 +155,8 @@ export default function Control() {
   const savedSpeedRef = useRef(null);
   const speedRef = useRef(120);
   speedRef.current = speed;
+  const danceStopRef = useRef(null);
+  const danceFileInputRef = useRef(null);
   const [panelClosed, setPanelClosed] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches
   );
@@ -306,6 +310,7 @@ export default function Control() {
     next[i] = v;
     stopDemo();
     stopCount();
+    danceStopRef.current?.();
     setRelaxed(false);
     setAllAngles(next, true);
   };
@@ -350,6 +355,7 @@ export default function Control() {
     if (!fromAuto) {
       stopDemo();
       stopCount();
+      danceStopRef.current?.();
     }
     setRelaxed(false);
     if (camState === 'on' && modeRef.current === 'track') {
@@ -424,6 +430,7 @@ export default function Control() {
   // Mode Auto Demo: 0-5 -> Peace -> Tengah -> Teknik + ganti animasi LED otomatis (smooth & tidak terlalu cepat)
   const startDemo = useCallback(() => {
     stopCount(false);
+    danceStopRef.current?.();
     clearTimeout(demoTimerRef.current);
     setRelaxed(false);
     if (modeRef.current !== 'manual') {
@@ -454,6 +461,7 @@ export default function Control() {
       const targetN = Math.max(2, Math.min(5, Math.round(maxN)));
       stopDemo(false);
       stopCount(false);
+      danceStopRef.current?.();
       setRelaxed(false);
       if (modeRef.current !== 'manual') {
         setMode('manual');
@@ -495,6 +503,7 @@ export default function Control() {
       if (nextRelax) {
         stopDemo();
         stopCount();
+        danceStopRef.current?.();
         if (modeRef.current !== 'manual') {
           setMode('manual');
           modeRef.current = 'manual';
@@ -506,6 +515,34 @@ export default function Control() {
     },
     [send, stopCount, stopDemo]
   );
+
+  // Mode Tarian mengikuti beat lagu (anti-stall: maks tekukan 72%, jempol aman terbuka, kecepatan dibatasi 140°/dtk)
+  const dance = useDanceMode({
+    onBeforeStart: () => {
+      stopDemo(false);
+      stopCount(false);
+      setRelaxed(false);
+      if (modeRef.current !== 'manual') {
+        setMode('manual');
+        modeRef.current = 'manual';
+      }
+      if (savedSpeedRef.current == null && speedRef.current > 145) {
+        savedSpeedRef.current = speedRef.current;
+        send('V,140');
+      } else if (speedRef.current < 110 && savedSpeedRef.current == null) {
+        savedSpeedRef.current = speedRef.current;
+        send('V,140');
+      }
+      setDanceOpen(true);
+    },
+    onPose: (pose) => applyShortcutRef.current(pose, false, { fromAuto: true }),
+    onLed: (patch) => applyVoiceLed(patch, true),
+    onStopDone: () => {
+      restoreSmoothSpeed();
+      applyShortcutRef.current(COUNT_POSES[5], false, { fromAuto: true });
+    },
+  });
+  danceStopRef.current = dance.stop;
 
   useEffect(() => () => {
     clearTimeout(demoTimerRef.current);
@@ -616,6 +653,12 @@ export default function Control() {
     if (typeof ui.countTo === 'number') {
       startCount(ui.countTo);
     }
+
+    if (ui.dance === 'start') {
+      dance.start();
+    } else if (ui.dance === 'stop') {
+      dance.stop();
+    }
   };
 
   const voice = useVoiceControl({
@@ -718,6 +761,7 @@ export default function Control() {
   const handleLogout = async () => {
     stopDemo();
     stopCount();
+    dance.stop();
     try { stop(); } catch {}
     try { voice.stop(); } catch {}
     setLedStudioOpen(false);
@@ -963,7 +1007,7 @@ export default function Control() {
               <button
                 type="button"
                 aria-pressed={mode === 'track'}
-                onClick={() => { stopDemo(); stopCount(); setRelaxed(false); setMode('track'); }}
+                onClick={() => { stopDemo(); stopCount(); dance.stop(); setRelaxed(false); setMode('track'); }}
               >
                 {c.handTracking}
               </button>
@@ -983,6 +1027,16 @@ export default function Control() {
               </button>
               <button
                 type="button"
+                className={`ctl-tool-btn ${dance.active ? 'is-active' : ''}`}
+                aria-pressed={dance.active}
+                onClick={() => dance.toggle()}
+                title={c.danceTitle}
+              >
+                <span className={`ctl-tool-dot ${dance.beatFlash ? 'is-beat' : ''}`} aria-hidden="true" />
+                {dance.active ? c.danceStop : c.danceStart}
+              </button>
+              <button
+                type="button"
                 className={`ctl-tool-btn ${relaxed ? 'is-warn' : ''}`}
                 aria-pressed={relaxed}
                 onClick={() => setRelaxState(!relaxed)}
@@ -992,23 +1046,150 @@ export default function Control() {
               </button>
               <button
                 type="button"
-                className={`ctl-tool-btn ctl-tool-num ${countingTo === 3 ? 'is-active' : ''}`}
+                className={`ctl-tool-btn ctl-tool-num ctl-tool-half ${countingTo === 3 ? 'is-active' : ''}`}
                 aria-pressed={countingTo === 3}
                 onClick={() => (countingTo === 3 ? stopCount() : startCount(3))}
                 title={c.countTitle(3)}
               >
-                {c.count13}
+                {c.countBtn(3)}
               </button>
               <button
                 type="button"
-                className={`ctl-tool-btn ctl-tool-num ${countingTo === 5 ? 'is-active' : ''}`}
+                className={`ctl-tool-btn ctl-tool-num ctl-tool-half ${countingTo === 5 ? 'is-active' : ''}`}
                 aria-pressed={countingTo === 5}
                 onClick={() => (countingTo === 5 ? stopCount() : startCount(5))}
                 title={c.countTitle(5)}
               >
-                {c.count15}
+                {c.countBtn(5)}
               </button>
             </div>
+
+            <section className={`led-box ${danceOpen ? 'is-open' : ''}`} aria-label={c.danceSection}>
+              <button
+                type="button"
+                className="led-toggle"
+                aria-expanded={danceOpen}
+                aria-controls="dance-mode-body"
+                onClick={() => setDanceOpen((v) => !v)}
+              >
+                <span className="led-toggle-left">
+                  <span className={`health-dot ${dance.active ? (dance.beatFlash ? 'is-beat' : 'is-on') : ''}`} aria-hidden="true" />
+                  <span className="led-toggle-title">{c.danceSection}</span>
+                </span>
+                <span className="health-summary-wrap">
+                  <span className="health-summary">
+                    {dance.active
+                      ? `${lang === 'id' ? dance.pattern.nameId : dance.pattern.nameEn}${dance.bpm ? ` · ${dance.bpm} BPM` : ''}`
+                      : dance.source === 'file' ? c.danceSrcFile : c.danceSrcMic}
+                  </span>
+                  <span className="led-chevron" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                </span>
+              </button>
+
+              <div id="dance-mode-body" className="led-collapse" aria-hidden={!danceOpen}>
+                <div className="led-collapse-inner">
+                  <div className="dance-vis-row">
+                    <div className={`dance-eq ${dance.beatFlash ? 'is-beat' : ''}`} aria-hidden="true">
+                      {dance.bars.map((h, idx) => (
+                        <span key={idx} style={{ height: `${h}%` }} />
+                      ))}
+                    </div>
+                    <div className="dance-meta">
+                      <strong>{dance.active ? (lang === 'id' ? dance.pattern.nameId : dance.pattern.nameEn) : c.danceIdle}</strong>
+                      <span>{dance.active && dance.bpm ? `${dance.bpm} BPM` : c.danceSafeBadge}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={dance.active ? 'btn btn-sm' : 'btn btn-primary btn-sm'}
+                      tabIndex={danceOpen ? 0 : -1}
+                      onClick={() => dance.toggle()}
+                    >
+                      {dance.active ? c.danceStop : c.danceStart}
+                    </button>
+                  </div>
+
+                  <div className="segmented" role="group" aria-label={c.danceSrcAria}>
+                    <button
+                      type="button"
+                      tabIndex={danceOpen ? 0 : -1}
+                      aria-pressed={dance.source === 'mic'}
+                      onClick={() => dance.switchSource('mic')}
+                    >
+                      {c.danceSrcMic}
+                    </button>
+                    <button
+                      type="button"
+                      tabIndex={danceOpen ? 0 : -1}
+                      aria-pressed={dance.source === 'file'}
+                      onClick={() => dance.switchSource('file')}
+                    >
+                      {c.danceSrcFile}
+                    </button>
+                  </div>
+
+                  {dance.source === 'file' && (
+                    <div className="dance-file-row">
+                      <input
+                        ref={danceFileInputRef}
+                        type="file"
+                        accept="audio/*"
+                        hidden
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) dance.selectFile(f);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        tabIndex={danceOpen ? 0 : -1}
+                        onClick={() => danceFileInputRef.current?.click()}
+                      >
+                        {c.dancePickAudio}
+                      </button>
+                      <span className="dance-file-name">{dance.fileName || c.danceNoFile}</span>
+                    </div>
+                  )}
+
+                  <div className="slider-row">
+                    <label htmlFor="dance-sens">
+                      {c.danceSens} <output>{dance.sensitivity}%</output>
+                    </label>
+                    <input
+                      id="dance-sens"
+                      className="slider"
+                      type="range"
+                      tabIndex={danceOpen ? 0 : -1}
+                      min={10}
+                      max={100}
+                      value={dance.sensitivity}
+                      onChange={(e) => dance.setSensitivity(+e.target.value)}
+                    />
+                  </div>
+
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      tabIndex={danceOpen ? 0 : -1}
+                      checked={dance.syncLed}
+                      onChange={(e) => dance.setSyncLed(e.target.checked)}
+                    />
+                    {c.danceSyncLed}
+                  </label>
+
+                  {dance.error && (
+                    <p className="ctl-note" style={{ color: '#d9534f' }}>
+                      {c.danceErr[dance.error] || c.danceErr.audio_failed}
+                    </p>
+                  )}
+                  <p className="ctl-note muted">{c.danceSafeNote}</p>
+                </div>
+              </div>
+            </section>
 
             <section className={`led-box ${healthOpen ? 'is-open' : ''}`} aria-label={c.healthSection}>
               <button
