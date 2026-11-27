@@ -58,7 +58,7 @@ STRICT SCOPE RULE:
 
 ROBOHAND PROJECT KNOWLEDGE:
 - Creator / maker: Farid Suryadi.
-- Hardware: ESP32 DevKit V1 (WiFi WebSocket, USB Serial 115200 bps, captive portal HandRobot-Setup / handrobot.local); 4 MG996R 180-degree servos for index GPIO 14, middle GPIO 26, ring GPIO 27, pinky GPIO 25; 1 continuous 360-degree servo for the thumb on GPIO 13; 2 WS2812B LED strips with 34 LEDs each (68 total) on GPIO 22 and 23 (11 animations, RGB mode, 3A automatic current limit); buzzer on GPIO 18; dual 18650 batteries in 2S 7.4V with a 2S 20A BMS; USB-C 5V 2A charger; XL4015 6V buck converter for servos and LEDs; Mini360 5V buck converter dedicated to the ESP32; 10A fuse, capacitor, and power switch; wooden frame with tendon-driven three-segment fingers.
+- Hardware: ESP32 DevKit V1 (WiFi WebSocket, USB Serial 115200 bps, captive portal HandRobot-Setup / handrobot.local); 4 MG996R 180-degree servos for index GPIO 14, middle GPIO 26, ring GPIO 27, pinky GPIO 25; 1 continuous 360-degree servo for the thumb on GPIO 13; 1 extra 180-degree servo for the engine bay backdoor/trunk hatch on GPIO 32 (independent angle and speed settings); 2 WS2812B LED strips with 34 LEDs each (68 total) on GPIO 22 and 23 (11 animations, RGB mode, 3A automatic current limit); buzzer on GPIO 18; dual 18650 batteries in 2S 7.4V with a 2S 20A BMS; USB-C 5V 2A charger; XL4015 6V buck converter for servos and LEDs; Mini360 5V buck converter dedicated to the ESP32; 10A fuse, capacitor, and power switch; wooden frame with tendon-driven three-segment fingers.
 - Software: real-time browser webcam hand tracking via MediaPipe Hands (21 landmarks), Node.js WebSocket bridge server, interactive 3D web simulation, calibration stored on ESP32 flash, and AI voice control.
 
 DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly ask for in their latest message):
@@ -79,6 +79,7 @@ DEVICE & UI CONTROLS (CRITICAL: NEVER set any action the user did NOT explicitly
   * "demo": "start" or "stop" (ONLY when user asks to start/stop auto demo mode)
   * "relax": boolean (true to relax/release/detach servos, false to wake/enable servos)
   * "countTo": integer 2..5 (ONLY when user asks to count sequentially e.g. "count 1 to 3", "count to 5", "hitung 1 sampai 5")
+  * "backdoor": "open" or "close" (ONLY when user asks to open or close the backdoor, bagasi, hatch, trunk, or rear cover)
 - "sleep": true ONLY if the user tells you to standby, sleep, or rest.
 - "label": 2-3 short English words for the status badge (use "Out of scope" when refusing off-topic questions).
 Return ONLY valid JSON.`;
@@ -126,6 +127,7 @@ const JARVIS_SCHEMA = {
         demo: { type: 'STRING', nullable: true },
         relax: { type: 'BOOLEAN', nullable: true },
         countTo: { type: 'INTEGER', nullable: true },
+        backdoor: { type: 'STRING', nullable: true },
       },
     },
   },
@@ -197,7 +199,7 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null, la
     });
   }
   const stateNote = state
-    ? `[pose:${JSON.stringify(state.pose || [])} led:${JSON.stringify(state.led || {})} cam:${state.camera || 'off'} panel:${state.panelOpen ? 'open' : 'closed'} ledOverlay:${state.ledStudioOpen ? 'open' : 'closed'} theme:${state.theme || 'dark'} mode:${state.mode || 'track'}]\n`
+    ? `[pose:${JSON.stringify(state.pose || [])} led:${JSON.stringify(state.led || {})} cam:${state.camera || 'off'} panel:${state.panelOpen ? 'open' : 'closed'} ledOverlay:${state.ledStudioOpen ? 'open' : 'closed'} backdoor:${state.backdoorOpen ? 'open' : 'closed'} theme:${state.theme || 'dark'} mode:${state.mode || 'track'}]\n`
     : '';
   const extraAlts = Array.isArray(alts) && alts.length > 1 ? ` (STT alternates: ${alts.slice(1, 4).join(' | ')})` : '';
   const langNote = lang === 'id' ? '[speaker language: Indonesian (STT id-ID)] ' : '[speaker language: English with Indonesian accent (STT en-US)] ';
@@ -303,6 +305,9 @@ async function askGeminiJarvis({ text, alts = [], history = [], state = null, la
       }
       if (typeof parsed.ui.countTo === 'number' && /\b(count|hitung|berhitung)\b/i.test(q)) {
         u.countTo = Math.max(2, Math.min(5, Math.round(parsed.ui.countTo)));
+      }
+      if ((parsed.ui.backdoor === 'open' || parsed.ui.backdoor === 'close') && /\b(back\s*door|bag\s*door|black\s*door|bak\s*door|bek\s*dor|backdoor|bagasi|hatch|trunk|bay|pintu\s*belakang|penutup\s*belakang)\b/i.test(q)) {
+        u.backdoor = parsed.ui.backdoor;
       }
       if (Object.keys(u).length > 0) cleanUi = u;
     }
@@ -666,6 +671,7 @@ const TARGET_FORMAT = /^\d{1,3}(,\d{1,3}){4}$/;
 const NUM = '\\d+(\\.\\d+)?';
 const CMD_FORMAT = new RegExp(
   `^(A,[1-4],${NUM},${NUM}|W,[1-4],${NUM}|V,\\d{2,3}|G|R,[01]|B(,[12])?` +
+  `|D,[01]|DA,${NUM},${NUM},${NUM}|DW,${NUM}` +
   `|C,\\d{3,4},\\d{2,3},-?1,\\d{3,5},\\d{3,5}|U,\\d{3,4}|Z,\\d{1,3}(\\.\\d+)?` +
   `|L(,\\d{1,3}){6,8})$`
 );

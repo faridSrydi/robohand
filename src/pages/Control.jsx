@@ -21,6 +21,7 @@ const DEFAULT_CAL = { open: [1.8, 1.9, 1.9, 1.9, 1.8], closed: [0.9, 0.8, 0.8, 0
 const DEFAULT_OPEN = 0;
 const DEFAULT_CLOSE = 180;
 const DEFAULT_THUMB = { neutral: 1500, power: 250, dir: 1, closeMs: 800, openMs: 800 };
+const DEFAULT_DOOR = { close: 10, open: 110, speed: 40 };
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 // Preset cepat (0 = terbuka, 100 = menutup). Urutan: Jempol, Telunjuk, Tengah, Manis, Kelingking.
@@ -60,6 +61,22 @@ function loadThumbCfg() {
     /* data rusak: pakai default */
   }
   return { ...DEFAULT_THUMB };
+}
+
+function loadDoorCfg() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('doorCfg'));
+    if (saved && typeof saved.close === 'number' && typeof saved.open === 'number') {
+      return {
+        close: Math.max(0, Math.min(180, Math.round(saved.close))),
+        open: Math.max(0, Math.min(180, Math.round(saved.open))),
+        speed: Math.max(10, Math.min(360, Math.round(saved.speed || DEFAULT_DOOR.speed))),
+      };
+    }
+  } catch {
+    /* data rusak: pakai default */
+  }
+  return { ...DEFAULT_DOOR };
 }
 
 function loadCal() {
@@ -121,11 +138,18 @@ export default function Control() {
   const auth = useAuth();
   const canControl = !auth.loginEnabled || auth.authenticated;
   const socket = useRobotSocket({ enabled: canControl });
-  const { connected, status, ports, cfg, pos, health, pingMs, error, send, sendJson } = socket;
+  const { connected, status, ports, cfg, pos, doorPos, doorOpen: espDoorOpen, health, pingMs, error, send, sendJson } = socket;
 
   const [cal, setCal] = useState(loadCal);
   const [servoLimits, setServoLimits] = useState(loadServoLimits);
   const [thumbCfg, setThumbCfg] = useState(loadThumbCfg);
+  const [doorCfg, setDoorCfg] = useState(loadDoorCfg);
+  const [doorOpen, setDoorOpen] = useState(false);
+  const doorCfgRef = useRef(doorCfg);
+  doorCfgRef.current = doorCfg;
+  const doorOpenRef = useRef(doorOpen);
+  doorOpenRef.current = doorOpen;
+  const doorDraggingRef = useRef(false);
   const [angles, setAngles] = useState([0, 0, 0, 0, 0]);
   const [mode, setMode] = useState('track');
   const [binary, setBinary] = useState(true);
@@ -258,7 +282,27 @@ export default function Control() {
         /* abaikan */
       }
     }
+    if (!doorDraggingRef.current && cfg.door && typeof cfg.door.close === 'number') {
+      const nextDoor = {
+        close: Math.max(0, Math.min(180, Math.round(cfg.door.close))),
+        open: Math.max(0, Math.min(180, Math.round(cfg.door.open))),
+        speed: Math.max(10, Math.min(360, Math.round(cfg.door.speed || DEFAULT_DOOR.speed))),
+      };
+      setDoorCfg(nextDoor);
+      try {
+        localStorage.setItem('doorCfg', JSON.stringify(nextDoor));
+      } catch {
+        /* abaikan */
+      }
+    }
+    if (cfg.door && typeof cfg.door.isOpen === 'boolean') {
+      setDoorOpen(cfg.door.isOpen);
+    }
   }, [cfg]);
+
+  useEffect(() => {
+    if (typeof espDoorOpen === 'boolean') setDoorOpen(espDoorOpen);
+  }, [espDoorOpen]);
 
   const saveServoLimit = (index, openVal, closeVal) => {
     if (index < 1 || index > 4) return;
@@ -291,6 +335,44 @@ export default function Control() {
     send(`C,${clean.neutral},${clean.power},${clean.dir},${clean.closeMs},${clean.openMs}`);
     send('Z,0');
   };
+
+  const saveDoorCfg = useCallback(
+    (next) => {
+      const clean = {
+        close: Math.max(0, Math.min(180, Math.round(next.close))),
+        open: Math.max(0, Math.min(180, Math.round(next.open))),
+        speed: Math.max(10, Math.min(360, Math.round(next.speed))),
+      };
+      doorCfgRef.current = clean;
+      setDoorCfg(clean);
+      try {
+        localStorage.setItem('doorCfg', JSON.stringify(clean));
+      } catch {
+        /* abaikan */
+      }
+      send(`DA,${clean.close},${clean.open},${clean.speed}`);
+    },
+    [send]
+  );
+
+  const setBackdoorState = useCallback(
+    (nextOpen) => {
+      setRelaxed(false);
+      setDoorOpen(nextOpen);
+      sfx.toggle(nextOpen);
+      send(nextOpen ? 'D,1' : 'D,0');
+    },
+    [send]
+  );
+
+  const previewDoorAngle = useCallback(
+    (angle) => {
+      setRelaxed(false);
+      const deg = Math.max(0, Math.min(180, Math.round(angle)));
+      send(`DW,${deg}`);
+    },
+    [send]
+  );
 
   const onToggleBinary = (checked) => {
     setBinary(checked);
@@ -616,6 +698,12 @@ export default function Control() {
     if (typeof ui.countTo === 'number') {
       startCount(ui.countTo);
     }
+
+    if (ui.backdoor === 'open') {
+      setBackdoorState(true);
+    } else if (ui.backdoor === 'close') {
+      setBackdoorState(false);
+    }
   };
 
   const voice = useVoiceControl({
@@ -630,6 +718,7 @@ export default function Control() {
       camera: camState,
       panelOpen: !panelClosed,
       ledStudioOpen: ledStudioOpenRef.current,
+      backdoorOpen: doorOpenRef.current,
       theme: document.documentElement.dataset.theme || 'dark',
       mode: modeRef.current,
     }),
@@ -1010,6 +1099,26 @@ export default function Control() {
               </button>
             </div>
 
+            <div className="ctl-door-bar">
+              <div className="ctl-door-info">
+                <span className={`ctl-door-dot ${doorOpen ? 'is-open' : ''}`} aria-hidden="true" />
+                <span className="ctl-door-name">{c.doorTitle}</span>
+                <span className="ctl-door-state">
+                  {doorOpen ? c.doorStateOpen : c.doorStateClosed}
+                  {doorPos != null ? ` · ${Math.round(doorPos)}°` : ''}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={`ctl-tool-btn ctl-door-btn ${doorOpen ? 'is-active' : ''}`}
+                aria-pressed={doorOpen}
+                onClick={() => setBackdoorState(!doorOpen)}
+                title={c.doorToggleTitle}
+              >
+                {doorOpen ? c.doorCloseBtn : c.doorOpenBtn}
+              </button>
+            </div>
+
             <section className={`led-box ${healthOpen ? 'is-open' : ''}`} aria-label={c.healthSection}>
               <button
                 type="button"
@@ -1210,6 +1319,118 @@ export default function Control() {
                     <input type="checkbox" tabIndex={servoOpen ? 0 : -1} checked={binary} onChange={(e) => onToggleBinary(e.target.checked)} />
                     {c.binaryLabel}
                   </label>
+
+                  <div className="door-settings">
+                    <div className="door-settings-head">
+                      <span className="door-settings-title">{c.doorSettingsTitle}</span>
+                      <div className="door-settings-acts">
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${!doorOpen ? 'btn-primary' : ''}`}
+                          tabIndex={servoOpen ? 0 : -1}
+                          onClick={() => setBackdoorState(false)}
+                        >
+                          {c.doorTestClose}
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${doorOpen ? 'btn-primary' : ''}`}
+                          tabIndex={servoOpen ? 0 : -1}
+                          onClick={() => setBackdoorState(true)}
+                        >
+                          {c.doorTestOpen}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="slider-row">
+                      <label htmlFor="door-close-ang">
+                        {c.doorCloseAngle} <output>{doorCfg.close}°</output>
+                      </label>
+                      <input
+                        id="door-close-ang"
+                        className="slider"
+                        type="range"
+                        tabIndex={servoOpen ? 0 : -1}
+                        min={0}
+                        max={180}
+                        step={1}
+                        value={doorCfg.close}
+                        onPointerDown={() => { doorDraggingRef.current = true; }}
+                        onChange={(e) => {
+                          const v = +e.target.value;
+                          const next = { ...doorCfgRef.current, close: v };
+                          doorCfgRef.current = next;
+                          setDoorCfg(next);
+                          previewDoorAngle(v);
+                        }}
+                        onPointerUp={() => {
+                          doorDraggingRef.current = false;
+                          saveDoorCfg(doorCfgRef.current);
+                        }}
+                        onKeyUp={() => saveDoorCfg(doorCfgRef.current)}
+                      />
+                    </div>
+
+                    <div className="slider-row">
+                      <label htmlFor="door-open-ang">
+                        {c.doorOpenAngle} <output>{doorCfg.open}°</output>
+                      </label>
+                      <input
+                        id="door-open-ang"
+                        className="slider"
+                        type="range"
+                        tabIndex={servoOpen ? 0 : -1}
+                        min={0}
+                        max={180}
+                        step={1}
+                        value={doorCfg.open}
+                        onPointerDown={() => { doorDraggingRef.current = true; }}
+                        onChange={(e) => {
+                          const v = +e.target.value;
+                          const next = { ...doorCfgRef.current, open: v };
+                          doorCfgRef.current = next;
+                          setDoorCfg(next);
+                          previewDoorAngle(v);
+                        }}
+                        onPointerUp={() => {
+                          doorDraggingRef.current = false;
+                          saveDoorCfg(doorCfgRef.current);
+                        }}
+                        onKeyUp={() => saveDoorCfg(doorCfgRef.current)}
+                      />
+                    </div>
+
+                    <div className="slider-row">
+                      <label htmlFor="door-speed">
+                        {c.doorSpeed} <output>{doorCfg.speed >= 360 ? c.speedMax : `${doorCfg.speed}${c.speedUnit}`}</output>
+                      </label>
+                      <input
+                        id="door-speed"
+                        className="slider"
+                        type="range"
+                        tabIndex={servoOpen ? 0 : -1}
+                        min={10}
+                        max={360}
+                        step={5}
+                        value={doorCfg.speed}
+                        onPointerDown={() => { doorDraggingRef.current = true; }}
+                        onChange={(e) => {
+                          const v = +e.target.value;
+                          const next = { ...doorCfgRef.current, speed: v };
+                          doorCfgRef.current = next;
+                          setDoorCfg(next);
+                        }}
+                        onPointerUp={() => {
+                          doorDraggingRef.current = false;
+                          saveDoorCfg(doorCfgRef.current);
+                        }}
+                        onKeyUp={() => saveDoorCfg(doorCfgRef.current)}
+                      />
+                    </div>
+                    <p className="ctl-note muted">{c.doorHint}</p>
+                  </div>
+
                   <p className="ctl-note muted">{c.servoHelp}</p>
                   <p className="ctl-note muted">{c.servoSavedNote}</p>
                 </div>

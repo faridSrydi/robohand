@@ -4453,3 +4453,87 @@ input[type='number'] {
   background: var(--accent);
   transition: width 0.35s ease;
 }
+
+/* ---------- Kontrol cepat & pengaturan servo Backdoor / Bagasi (GPIO 32) ---------- */
+.ctl-door-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.ctl-door-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ctl-door-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mut);
+  opacity: 0.55;
+  flex: none;
+  transition: background-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+
+.ctl-door-dot.is-open {
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.ctl-door-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.ctl-door-state {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--mut);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctl-door-btn {
+  height: 30px;
+  padding: 0 14px;
+  flex: none;
+}
+
+.door-settings {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+
+.door-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.door-settings-title {
+  font-size: 0.82rem;
+  font-weight: 620;
+  color: var(--fg);
+}
+
+.door-settings-acts {
+  display: inline-flex;
+  gap: 6px;
+}

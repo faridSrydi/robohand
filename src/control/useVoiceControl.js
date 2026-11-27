@@ -68,6 +68,10 @@ function normalizeTranscript(s) {
     .replace(/\b(tekhnik|tehnik|tehnix|teknic|technique|techniques|technic|technics|technical|tech\s+nick|tek\s+nik|titanic)\b/gi, 'teknik')
     .replace(/\b(rileks|relaks|rilek|relex)\b/gi, 'relax')
     .replace(/\b(berhitung|itung|ngitung)\b/gi, 'hitung')
+    .replace(/\b(back\s+door|bag\s+door|black\s+door|bak\s+door|bek\s+dor|bekdor|backdor|backdoors|bagdoor)\b/gi, 'backdoor')
+    .replace(/\b(bagasih|bagacy)\b/gi, 'bagasi')
+    .replace(/\b(clode|klos|klose|clothes|klaus|cross|claws|glows)\s+(backdoor|bagasi|hatch|trunk)\b/gi, 'close $2')
+    .replace(/\b(backdoor|bagasi|hatch|trunk)\s+(clode|klos|klose|clothes|klaus|cross|claws|glows)\b/gi, '$1 close')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -114,6 +118,7 @@ const FUZZY_VOCAB = [
   'brightness', 'kecerahan', 'kecepatan', 'brighter', 'dimmer', 'faster', 'slower',
   'yellow', 'orange', 'purple', 'violet', 'kuning', 'merah', 'hijau', 'putih',
   'peace', 'teknik', 'kepalan', 'terbuka', 'indonesian', 'english', 'demo', 'relax', 'hitung', 'count',
+  'backdoor', 'bagasi', 'hatch', 'trunk',
 ];
 
 function fuzzyRepair(text) {
@@ -414,6 +419,17 @@ function parseUiCommand(text, state = null) {
     if (n) {
       ui.countTo = n;
       labels.push(`Count 1–${n}`);
+    }
+  }
+
+  // Perintah servo backdoor / bagasi mesin (open backdoor / close backdoor / buka bagasi / tutup bagasi)
+  if (/\b(backdoor|bagasi|trunk|hatch|engine\s*bay|pintu\s*belakang|penutup\s*belakang)\b/i.test(text)) {
+    if (/\b(close|closed|clode|shut|lock|off|tutup)\b/i.test(text)) {
+      ui.backdoor = 'close';
+      labels.push('Backdoor closed');
+    } else if (/\b(open|unlock|on|buka)\b/i.test(text)) {
+      ui.backdoor = 'open';
+      labels.push('Backdoor open');
     }
   }
 

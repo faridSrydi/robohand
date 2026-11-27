@@ -1,4 +1,5 @@
 // Robot hand - ESP32 + 4 servo MG996R (180°, jari) + 1 servo kontinu 360° (jempol)
+//              + 1 servo 180° backdoor/bagasi (GPIO 32)
 //              + 2 LED strip WS2812B (34 LED per strip) + buzzer
 //              dengan WiFi setup otomatis (captive portal)
 // Library (Library Manager):  "WebSockets" by Markus Sattler,  "ESP32Servo" by Kevin Harrington,
@@ -40,6 +41,11 @@ struct ThumbCfg {
   int closeMs;    // waktu putar dari terbuka penuh sampai tertutup penuh (ms)
   int openMs;     // waktu putar dari tertutup penuh sampai terbuka penuh (ms)
 };
+struct DoorCfg {
+  float close;    // sudut saat backdoor/bagasi tertutup (0-180°)
+  float open;     // sudut saat backdoor/bagasi terbuka (0-180°)
+  float speed;    // kecepatan gerak khusus backdoor (derajat/detik, >= 360 = maks)
+};
 void ledColor(const LedCfg& L, uint32_t st, int i, uint8_t& r, uint8_t& g, uint8_t& b);
 
 const char* AP_NAME  = "HandRobot-Setup";
@@ -48,6 +54,8 @@ const char* DEFAULT_SERVER = "robotic-hand.my.id:3000";
 const int   RESET_PIN = 0;                   // tombol BOOT
 // Urutan: jempol (kontinu 360°), telunjuk, tengah, manis, kelingking (180°)
 const int SERVO_PINS[5] = {13, 14, 26, 27, 25};
+// Servo ke-6 khusus backdoor / bagasi mesin (180°, bebas strapping pin)
+const int BACKDOOR_PIN = 32;
 
 // LED strip WS2812B (data lewat resistor 220 ohm)
 const int LED_PIN1 = 22;
@@ -68,6 +76,7 @@ const int BUZZER_PIN = 18;
 const bool BUZZER_ACTIVE = true;     // false = buzzer pasif (bisa nada), true = buzzer aktif (cuma on/off)
 
 Servo servos[5];
+Servo doorServo;
 Adafruit_NeoPixel strip1(LED_COUNT, LED_PIN1, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel strip2(LED_COUNT, LED_PIN2, NEO_GRB + NEO_KHZ800);
 Preferences prefs;
@@ -687,6 +696,14 @@ unsigned long lastMotor = 0, lastPosSent = 0, lastHealthSent = 0;
 bool posDirty = false;
 bool servosRelaxed = false;
 
+// Servo ke-6 khusus backdoor / bagasi mesin (180°, kecepatan terpisah dari jari)
+DoorCfg doorCfg = {10.0f, 110.0f, 40.0f};
+float doorCur = 10.0f;
+float doorGoal = 10.0f;
+bool doorOpen = false;
+bool doorHold = false;
+int doorLastUs = -1;
+
 // Kabel USB (Serial): perintah sama dengan WiFi, satu baris per perintah.
 // ESP32 hanya kirim JSON balik lewat kabel kalau baru menerima perintah dari kabel (<3 detik).
 unsigned long lastSerialRx = 0;
@@ -713,6 +730,18 @@ void loadConfig() {
   thumb.closeMs = prefs.getInt("tc", 800);
   thumb.openMs  = prefs.getInt("to", 800);
   thumbPos      = constrain(prefs.getFloat("tpos", 0.0f), 0.0f, 100.0f);
+  doorCfg.close = constrain(prefs.getFloat("dc", 10.0f), 0.0f, 180.0f);
+  doorCfg.open  = constrain(prefs.getFloat("do", 110.0f), 0.0f, 180.0f);
+  doorCfg.speed = constrain(prefs.getFloat("ds", 40.0f), 10.0f, 360.0f);
+  doorCur = doorGoal = doorCfg.close;
+  doorOpen = false;
+  doorHold = false;
+}
+
+void saveDoorCfg() {
+  prefs.putFloat("dc", doorCfg.close);
+  prefs.putFloat("do", doorCfg.open);
+  prefs.putFloat("ds", doorCfg.speed);
 }
 
 void saveThumb() {
@@ -744,14 +773,16 @@ void sendCfg() {
          ",\"rgb\":" + (led[s].rgb ? "true" : "false") + "}";
     if (s == 0) j += ",";
   }
-  j += "]}";
+  j += "],\"door\":{\"close\":" + String(doorCfg.close, 1) + ",\"open\":" + String(doorCfg.open, 1) +
+       ",\"speed\":" + String(doorCfg.speed, 0) + ",\"isOpen\":" + (doorOpen ? "true" : "false") +
+       ",\"cur\":" + String(doorCur, 1) + "}}";
   emit(j);
 }
 
 void sendPos() {
   String j = "{\"type\":\"pos\",\"p\":[";
   for (int i = 0; i < 5; i++) { j += String(cur[i], 1); if (i < 4) j += ","; }
-  j += "]}";
+  j += "],\"door\":" + String(doorCur, 1) + ",\"doorOpen\":" + (doorOpen ? "true" : "false") + "}";
   emit(j);
 }
 
@@ -775,6 +806,8 @@ void setServosRelaxed(bool relax) {
       if (servos[i].attached()) servos[i].detach();
       lastUs[i] = -1;
     }
+    if (doorServo.attached()) doorServo.detach();
+    doorLastUs = -1;
     servosRelaxed = true;
   } else {
     servos[0].setPeriodHertz(50);
@@ -789,6 +822,12 @@ void setServosRelaxed(bool relax) {
       servos[i].writeMicroseconds(us);
       lastUs[i] = us;
     }
+    doorServo.setPeriodHertz(50);
+    int dus = 500 + (int)(doorCur / 180.0f * 2000.0f + 0.5f);
+    doorServo.writeMicroseconds(dus);
+    doorServo.attach(BACKDOOR_PIN, 500, 2500);
+    doorServo.writeMicroseconds(dus);
+    doorLastUs = dus;
     servosRelaxed = false;
     lastMotor = millis();
   }
@@ -854,6 +893,33 @@ void handleCommand(const char* s) {
     int rVal = 1;
     sscanf(s, "R,%d", &rVal);
     setServosRelaxed(rVal != 0);
+  } else if (s[0] == 'D' && s[1] == 'A') {
+    float dc = 0, dop = 0, dsp = 0;
+    if (sscanf(s, "DA,%f,%f,%f", &dc, &dop, &dsp) == 3) {
+      doorCfg.close = constrain(dc, 0.0f, 180.0f);
+      doorCfg.open  = constrain(dop, 0.0f, 180.0f);
+      doorCfg.speed = constrain(dsp, 10.0f, 360.0f);
+      saveDoorCfg();
+      if (!doorHold) doorGoal = doorOpen ? doorCfg.open : doorCfg.close;
+      sendCfg();
+    }
+  } else if (s[0] == 'D' && s[1] == 'W') {
+    float ang = 0;
+    if (sscanf(s, "DW,%f", &ang) == 1) {
+      if (servosRelaxed) setServosRelaxed(false);
+      doorGoal = constrain(ang, 0.0f, 180.0f);
+      doorHold = true;
+    }
+  } else if (s[0] == 'D' && s[1] == ',') {
+    int dv = 0;
+    if (sscanf(s, "D,%d", &dv) == 1) {
+      if (servosRelaxed) setServosRelaxed(false);
+      doorOpen = (dv != 0);
+      doorHold = false;
+      doorGoal = doorOpen ? doorCfg.open : doorCfg.close;
+      sendCfg();
+      posDirty = true;
+    }
   } else if (s[0] == 'B') {
     int bKind = 2;
     sscanf(s, "B,%d", &bKind);
@@ -939,6 +1005,15 @@ void motorUpdate() {
       int us = 500 + (int)(cur[i] / 180.0f * 2000.0f + 0.5f);
       if (us != lastUs[i]) { servos[i].writeMicroseconds(us); lastUs[i] = us; posDirty = true; }
     }
+
+    // Servo ke-6: backdoor / bagasi mesin (kecepatan khusus terpisah dari kecepatan jari)
+    float doorMaxStep = doorCfg.speed * dt;
+    bool doorInstant = doorCfg.speed >= 360.0f;
+    float dd = doorGoal - doorCur;
+    if (doorInstant || fabsf(dd) <= doorMaxStep) doorCur = doorGoal;
+    else doorCur += dd > 0 ? doorMaxStep : -doorMaxStep;
+    int dus = 500 + (int)(doorCur / 180.0f * 2000.0f + 0.5f);
+    if (dus != doorLastUs) { doorServo.writeMicroseconds(dus); doorLastUs = dus; posDirty = true; }
   }
 
   if (posDirty && (ws.isConnected() || serialActive()) && now - lastPosSent > 250) {
@@ -1073,6 +1148,18 @@ void bootOpenFirst() {
     lastUs[i] = openUs;
     delay(80);
   }
+
+  // Pasang servo backdoor / bagasi langsung ke sudut tutup tersimpan (tidak ikut gelombang jari)
+  doorServo.setPeriodHertz(50);
+  doorCur = doorGoal = doorCfg.close;
+  doorOpen = false;
+  doorHold = false;
+  int doorCloseUs = 500 + (int)(doorCfg.close / 180.0f * 2000.0f + 0.5f);
+  doorServo.writeMicroseconds(doorCloseUs);
+  doorServo.attach(BACKDOOR_PIN, 500, 2500);
+  doorServo.writeMicroseconds(doorCloseUs);
+  doorLastUs = doorCloseUs;
+  delay(80);
 
   // Tunggu sampai 4 jari benar-benar sempat terbuka (~500 ms) & jempol kembali ke 0% bila sempat tertutup
   unsigned long t0 = millis();

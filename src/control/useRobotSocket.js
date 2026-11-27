@@ -15,6 +15,8 @@ export function useRobotSocket({ enabled = true } = {}) {
   const [ports, setPorts] = useState([]);
   const [cfg, setCfg] = useState(null);
   const [pos, setPos] = useState(null);
+  const [doorPos, setDoorPos] = useState(null);
+  const [doorOpen, setDoorOpen] = useState(null);
   const [health, setHealth] = useState(null);
   const [pingMs, setPingMs] = useState(null);
   const [error, setError] = useState('');
@@ -79,8 +81,16 @@ export function useRobotSocket({ enabled = true } = {}) {
         switch (m.type) {
           case 'status': setStatus(m); break;
           case 'ports': setPorts(m.ports || []); break;
-          case 'cfg': setCfg(m); break;
-          case 'pos': setPos(m.p); break;
+          case 'cfg':
+            setCfg(m);
+            if (m.door && typeof m.door.cur === 'number') setDoorPos(m.door.cur);
+            if (m.door && typeof m.door.isOpen === 'boolean') setDoorOpen(m.door.isOpen);
+            break;
+          case 'pos':
+            setPos(m.p);
+            if (typeof m.door === 'number') setDoorPos(m.door);
+            if (typeof m.doorOpen === 'boolean') setDoorOpen(m.doorOpen);
+            break;
           case 'health': setHealth(m); break;
           case 'pong':
             if (typeof m.t === 'number') setPingMs(Math.max(1, Date.now() - m.t));
@@ -107,5 +117,5 @@ export function useRobotSocket({ enabled = true } = {}) {
 
   const sendJson = useCallback((obj) => send(JSON.stringify(obj)), [send]);
 
-  return { connected, status, ports, cfg, pos, health, pingMs, error, send, sendJson };
+  return { connected, status, ports, cfg, pos, doorPos, doorOpen, health, pingMs, error, send, sendJson };
 }
